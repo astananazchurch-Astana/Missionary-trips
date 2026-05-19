@@ -7,9 +7,9 @@ export function MinistrySection() {
       <div className="container">
         <SectionHeading
           align="center"
-          eyebrow="Секции лендинга"
-          title="Служения, которые стоит вынести на главную"
-          description="Контент собран так, чтобы после подключения backend администратор мог редактировать эти блоки из панели."
+          eyebrow="Служения"
+          title="Жизнь церкви в течение недели"
+          description="Мы собираемся для поклонения, общения, молитвы и практической заботы о людях. В каждом служении есть место для веры, роста и поддержки друг друга."
         />
 
         <div className="ministry-grid">

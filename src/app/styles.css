@@ -25,6 +25,12 @@ html {
   scroll-padding-top: var(--header-height);
 }
 
+@media (prefers-reduced-motion: no-preference) {
+  html {
+    scroll-behavior: smooth;
+  }
+}
+
 body {
   margin: 0;
   background: var(--paper);
@@ -557,6 +563,16 @@ textarea {
 .check-list svg {
   flex: 0 0 auto;
   color: var(--green);
+}
+
+.mission-cues {
+  max-width: 640px;
+}
+
+.mission-cues span {
+  background:
+    linear-gradient(135deg, rgba(243, 198, 95, 0.14), transparent 48%),
+    rgba(255, 255, 255, 0.84);
 }
 
 .trips-loading {

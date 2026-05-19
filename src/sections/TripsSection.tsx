@@ -1,6 +1,5 @@
 import { type CSSProperties, useEffect, useMemo, useState } from "react";
-import { ArrowLeft, ArrowRight, CalendarDays, MapPin, UsersRound } from "lucide-react";
-import { tripHighlights } from "../shared/config/church";
+import { ArrowLeft, ArrowRight, CalendarDays, CheckCircle2, MapPin, UsersRound } from "lucide-react";
 import { fetchPublicTrips, type PublicTrip } from "../shared/lib/auth";
 import { appPath } from "../shared/lib/routes";
 import { SectionHeading } from "../shared/ui/SectionHeading";
@@ -9,6 +8,13 @@ type TripsSectionProps = {
   loginHref: string;
   onLoginClick: () => void;
 };
+
+const missionTripCues = [
+  "молиться за людей и команды",
+  "служить делом, временем и дарами",
+  "ехать туда, где нужна поддержка",
+  "возвращаться с отчетом и благодарностью",
+];
 
 export function TripsSection(_props: TripsSectionProps) {
   const [trips, setTrips] = useState<PublicTrip[]>([]);
@@ -70,25 +76,20 @@ export function TripsSection(_props: TripsSectionProps) {
         <div>
           <SectionHeading
             eyebrow="Миссионерские поездки"
-            title="Актуальные направления для служения"
-            description="Поездки создаются в админ-панели и автоматически появляются на лендинге с флагом страны, датой и ключевыми деталями."
+            title="Идите и служите с любовью"
+            description="«Идите по всему миру и проповедуйте Евангелие всей твари» — Марка 16:15."
           />
 
-          {isLoadingTrips ? <p className="trips-loading">Загружаем поездки...</p> : null}
+          <div className="check-list mission-cues">
+            {missionTripCues.map((item) => (
+              <span key={item}>
+                <CheckCircle2 size={20} aria-hidden="true" />
+                {item}
+              </span>
+            ))}
+          </div>
 
-          {!isLoadingTrips && !trips.length ? (
-            <div className="check-list">
-              {tripHighlights.map((item) => {
-                const Icon = item.icon;
-                return (
-                  <span key={item.text}>
-                    <Icon size={20} aria-hidden="true" />
-                    {item.text}
-                  </span>
-                );
-              })}
-            </div>
-          ) : null}
+          {isLoadingTrips ? <p className="trips-loading">Загружаем поездки...</p> : null}
         </div>
 
         <div className="trip-carousel" aria-label="Актуальные поездки">
@@ -143,7 +144,7 @@ export function TripsSection(_props: TripsSectionProps) {
           ) : (
             <div className="trip-carousel-empty">
               <h3>Поездок пока нет</h3>
-              <p>Когда администратор создаст направление, оно появится здесь автоматически.</p>
+              <p>Когда появится новое направление, церковь увидит его здесь и сможет откликнуться.</p>
             </div>
           )}
         </div>

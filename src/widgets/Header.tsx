@@ -11,6 +11,31 @@ type HeaderProps = {
 export function Header({ loginHref, onLoginClick }: HeaderProps) {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
 
+  const handleSectionClick = (event: MouseEvent<HTMLAnchorElement>, href: string) => {
+    event.preventDefault();
+    setIsMenuOpen(false);
+
+    const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+    if (href === "#top") {
+      window.scrollTo({ top: 0, behavior: prefersReducedMotion ? "auto" : "smooth" });
+      window.history.pushState({}, "", window.location.pathname + window.location.search);
+      return;
+    }
+
+    const target = document.querySelector<HTMLElement>(href);
+
+    if (!target) {
+      return;
+    }
+
+    target.scrollIntoView({
+      behavior: prefersReducedMotion ? "auto" : "smooth",
+      block: "start",
+    });
+    window.history.pushState({}, "", href);
+  };
+
   const handleLoginClick = (event: MouseEvent<HTMLAnchorElement>) => {
     event.preventDefault();
     setIsMenuOpen(false);
@@ -19,7 +44,12 @@ export function Header({ loginHref, onLoginClick }: HeaderProps) {
 
   return (
     <header className="site-header">
-      <a className="brand" href="#top" aria-label="На главную">
+      <a
+        className="brand"
+        href="#top"
+        aria-label="На главную"
+        onClick={(event) => handleSectionClick(event, "#top")}
+      >
         <Logo className="brand__logo" />
         <span>
           <strong>{church.name}</strong>
@@ -29,7 +59,7 @@ export function Header({ loginHref, onLoginClick }: HeaderProps) {
 
       <nav className="site-nav" aria-label="Основная навигация">
         {navLinks.map((link) => (
-          <a key={link.href} href={link.href}>
+          <a key={link.href} href={link.href} onClick={(event) => handleSectionClick(event, link.href)}>
             {link.label}
           </a>
         ))}
@@ -57,7 +87,7 @@ export function Header({ loginHref, onLoginClick }: HeaderProps) {
         aria-label="Мобильная навигация"
       >
         {navLinks.map((link) => (
-          <a key={link.href} href={link.href} onClick={() => setIsMenuOpen(false)}>
+          <a key={link.href} href={link.href} onClick={(event) => handleSectionClick(event, link.href)}>
             {link.label}
           </a>
         ))}
