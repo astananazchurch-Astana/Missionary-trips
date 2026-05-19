@@ -7,6 +7,7 @@ import {
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { dirname, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 import { City, Country } from "country-state-city";
 
@@ -24,16 +25,19 @@ const ADMIN_PASSWORD_HASH =
 const JWT_SECRET = process.env.JWT_SECRET || "development-only-change-this-secret";
 const ACCESS_TOKEN_TTL_SECONDS = Number(process.env.ACCESS_TOKEN_TTL_SECONDS || 60 * 60);
 const BODY_LIMIT_BYTES = 64 * 1024;
-const TRIPS_DATA_FILE = resolve(process.cwd(), process.env.TRIPS_DATA_FILE || "server/data/trips.json");
+const DEFAULT_TRIPS_DATA_FILE = process.env.VERCEL
+  ? "/tmp/missionary-trips.json"
+  : "server/data/trips.json";
+const TRIPS_DATA_FILE = resolve(process.cwd(), process.env.TRIPS_DATA_FILE || DEFAULT_TRIPS_DATA_FILE);
 const countryDisplayNames = new Intl.DisplayNames(["ru"], { type: "region" });
 
 if (process.env.NODE_ENV === "production" && JWT_SECRET === "development-only-change-this-secret") {
   throw new Error("JWT_SECRET must be set in production.");
 }
 
-const server = createServer(async (request, response) => {
+export default async function handleRequest(request, response) {
   const origin = request.headers.origin;
-  const url = new URL(request.url || "/", `http://${request.headers.host || "localhost"}`);
+  const url = getRequestUrl(request);
 
   if (request.method === "OPTIONS") {
     sendEmpty(response, 204, origin);
@@ -204,11 +208,30 @@ const server = createServer(async (request, response) => {
 
     sendJson(response, status, { message }, origin);
   }
-});
+}
 
-server.listen(PORT, () => {
-  console.log(`Auth API is running on http://127.0.0.1:${PORT}`);
-});
+if (isMainModule()) {
+  createServer(handleRequest).listen(PORT, () => {
+    console.log(`Auth API is running on http://127.0.0.1:${PORT}`);
+  });
+}
+
+function getRequestUrl(request) {
+  const host = request.headers.host || "localhost";
+  const url = new URL(request.url || "/", `http://${host}`);
+  const routedPath = url.searchParams.get("__path");
+
+  if (routedPath) {
+    url.pathname = `/api/${routedPath.replace(/^\/+/, "")}`;
+    url.searchParams.delete("__path");
+  }
+
+  return url;
+}
+
+function isMainModule() {
+  return Boolean(process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href);
+}
 
 async function handleLogin(request, response, origin) {
   const body = await readJsonBody(request);
@@ -432,6 +455,20 @@ function loadEnvFile() {
 }
 
 async function readJsonBody(request) {
+  if (request.body !== undefined && request.body !== null) {
+    if (Buffer.isBuffer(request.body)) {
+      return parseJsonBody(request.body.toString("utf8"));
+    }
+
+    if (typeof request.body === "string") {
+      return parseJsonBody(request.body);
+    }
+
+    if (typeof request.body === "object" && !isReadableStreamBody(request.body)) {
+      return request.body;
+    }
+  }
+
   const chunks = [];
   let totalBytes = 0;
 
@@ -447,6 +484,10 @@ async function readJsonBody(request) {
 
   const rawBody = Buffer.concat(chunks).toString("utf8");
 
+  return parseJsonBody(rawBody);
+}
+
+function parseJsonBody(rawBody) {
   if (!rawBody) {
     return {};
   }
@@ -456,6 +497,10 @@ async function readJsonBody(request) {
   } catch {
     throw httpError(400, "Request body must be valid JSON.");
   }
+}
+
+function isReadableStreamBody(body) {
+  return typeof body.pipe === "function" || typeof body.getReader === "function";
 }
 
 async function verifyPassword(password) {
