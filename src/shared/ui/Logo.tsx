@@ -3,5 +3,5 @@ type LogoProps = {
 };
 
 export function Logo({ className }: LogoProps) {
-  return <img className={className} src="/logo.png" alt="" />;
+  return <img className={className} src={`${import.meta.env.BASE_URL}logo.png`} alt="" />;
 }
