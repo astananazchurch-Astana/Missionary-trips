@@ -1,8 +1,19 @@
+import { type MouseEvent } from "react";
 import { ArrowRight } from "lucide-react";
 import { tripHighlights } from "../shared/config/church";
 import { SectionHeading } from "../shared/ui/SectionHeading";
 
-export function TripsSection() {
+type TripsSectionProps = {
+  loginHref: string;
+  onLoginClick: () => void;
+};
+
+export function TripsSection({ loginHref, onLoginClick }: TripsSectionProps) {
+  const handleLoginClick = (event: MouseEvent<HTMLAnchorElement>) => {
+    event.preventDefault();
+    onLoginClick();
+  };
+
   return (
     <section id="trips" className="section trips-section" data-reveal>
       <div className="container trips-layout">
@@ -33,7 +44,7 @@ export function TripsSection() {
             Администратор создает поездки и группы, участник подает заявку и видит свой
             статус. Backend хранит пользователей, роли, формы, расписание, файлы и отчеты.
           </p>
-          <a className="inline-action" href="/login">
+          <a className="inline-action" href={loginHref} onClick={handleLoginClick}>
             Войти в будущий кабинет
             <ArrowRight size={18} aria-hidden="true" />
           </a>

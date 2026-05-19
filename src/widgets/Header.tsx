@@ -1,10 +1,21 @@
-import { useState } from "react";
+import { type MouseEvent, useState } from "react";
 import { Menu } from "lucide-react";
 import { church, navLinks } from "../shared/config/church";
 import { Logo } from "../shared/ui/Logo";
 
-export function Header() {
+type HeaderProps = {
+  loginHref: string;
+  onLoginClick: () => void;
+};
+
+export function Header({ loginHref, onLoginClick }: HeaderProps) {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+
+  const handleLoginClick = (event: MouseEvent<HTMLAnchorElement>) => {
+    event.preventDefault();
+    setIsMenuOpen(false);
+    onLoginClick();
+  };
 
   return (
     <header className="site-header">
@@ -25,7 +36,7 @@ export function Header() {
       </nav>
 
       <div className="header-actions">
-        <a className="ghost-link" href="/login">
+        <a className="ghost-link" href={loginHref} onClick={handleLoginClick}>
           Вход
         </a>
         <button
@@ -50,7 +61,7 @@ export function Header() {
             {link.label}
           </a>
         ))}
-        <a href="/login" onClick={() => setIsMenuOpen(false)}>
+        <a href={loginHref} onClick={handleLoginClick}>
           Вход
         </a>
       </nav>
