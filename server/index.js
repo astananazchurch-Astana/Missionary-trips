@@ -67,9 +67,51 @@ export default async function handleRequest(request, response) {
     }
 
     if (request.method === "GET" && url.pathname === "/api/trips") {
-      const trips = await readTrips();
+      const trips = await getPublicTrips();
 
-      sendJson(response, 200, { trips: trips.map(toPublicTrip) }, origin);
+      sendJson(response, 200, { trips }, origin);
+      return;
+    }
+
+    const publicTripMatch = url.pathname.match(/^\/api\/trips\/([^/]+)$/);
+    const publicTripParticipantsMatch = url.pathname.match(/^\/api\/trips\/([^/]+)\/participants$/);
+
+    if (request.method === "GET" && publicTripMatch) {
+      const trip = await getPublicTripRecord(publicTripMatch[1]);
+
+      if (!trip) {
+        sendJson(response, 404, { message: "Trip not found." }, origin);
+        return;
+      }
+
+      sendJson(response, 200, { trip }, origin);
+      return;
+    }
+
+    if (request.method === "POST" && publicTripParticipantsMatch) {
+      const trip = await getTripRecord(publicTripParticipantsMatch[1]);
+
+      if (!trip) {
+        sendJson(response, 404, { message: "Trip not found." }, origin);
+        return;
+      }
+
+      if (isRegistrationClosed(trip.registrationDeadline || trip.date)) {
+        sendJson(response, 400, { message: "Registration is closed." }, origin);
+        return;
+      }
+
+      if ((trip.participants || []).length >= Number(trip.peopleLimit || 0)) {
+        sendJson(response, 400, { message: "There are no available spots for this trip." }, origin);
+        return;
+      }
+
+      const body = await readJsonBody(request);
+      const participant = buildParticipant(body, trip.id);
+
+      await createTripParticipant(participant);
+
+      sendJson(response, 201, { participant: toPublicParticipant(participant) }, origin);
       return;
     }
 
@@ -372,18 +414,69 @@ function validateDate(value, fieldName) {
   }
 }
 
+function buildParticipant(body, tripId) {
+  const fullName = requiredText(body.fullName, "fullName", 180);
+  const cityName = requiredText(body.cityName, "cityName", 160);
+  const phone = normalizePhone(requiredText(body.phone, "phone", 32));
+  const email = requiredEmail(body.email);
+  const availableDays = Number(body.availableDays);
+
+  if (!Number.isInteger(availableDays) || availableDays < 1 || availableDays > 365) {
+    throw httpError(400, "availableDays must be a positive integer.");
+  }
+
+  return {
+    id: randomUUID(),
+    tripId,
+    fullName,
+    cityName,
+    availableDays,
+    phone,
+    email,
+    donation: optionalText(body.donation, 160),
+    status: "Согласился",
+    createdAt: new Date().toISOString(),
+  };
+}
+
+function normalizePhone(value) {
+  const digits = value.replace(/\D/g, "");
+
+  if (digits.length !== 11 || digits[0] !== "7") {
+    throw httpError(400, "phone must be a Kazakhstan number starting with +7.");
+  }
+
+  return `+7 (${digits.slice(1, 4)}) ${digits.slice(4, 7)}-${digits.slice(7, 9)}-${digits.slice(9, 11)}`;
+}
+
+function requiredEmail(value) {
+  const email = requiredText(value, "email", 180).toLowerCase();
+
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    throw httpError(400, "email must be valid.");
+  }
+
+  return email;
+}
+
 function getDashboardMetrics(trips) {
   const peopleLimit = trips.reduce((total, trip) => total + Number(trip.peopleLimit || 0), 0);
+  const participantsCount = trips.reduce(
+    (total, trip) => total + Number(trip.participantsCount ?? trip.participants?.length ?? 0),
+    0,
+  );
 
   return [
     { id: "trips", label: "Активные поездки", value: String(trips.length) },
-    { id: "requests", label: "Новые заявки", value: "0" },
-    { id: "members", label: "Участники", value: String(peopleLimit) },
+    { id: "requests", label: "Новые заявки", value: String(participantsCount) },
+    { id: "members", label: "Места", value: String(peopleLimit) },
     { id: "reports", label: "Черновики отчетов", value: "0" },
   ];
 }
 
 function toTripListItem(trip) {
+  const participantsCount = Number(trip.participantsCount ?? trip.participants?.length ?? 0);
+
   return {
     id: trip.id,
     countryCode: trip.countryCode,
@@ -394,12 +487,16 @@ function toTripListItem(trip) {
     startDate: trip.startDate || trip.date,
     endDate: trip.endDate || trip.startDate || trip.date,
     peopleLimit: trip.peopleLimit,
+    participantsCount,
+    availableSpots: Math.max(Number(trip.peopleLimit || 0) - participantsCount, 0),
     cost: trip.cost,
     status: trip.status,
   };
 }
 
 function toPublicTrip(trip) {
+  const participantsCount = Number(trip.participantsCount || trip.participants?.length || 0);
+
   return {
     id: trip.id,
     countryCode: trip.countryCode,
@@ -411,9 +508,35 @@ function toPublicTrip(trip) {
     startDate: trip.startDate || trip.date,
     endDate: trip.endDate || trip.startDate || trip.date,
     peopleLimit: trip.peopleLimit,
+    participantsCount,
+    availableSpots: Math.max(Number(trip.peopleLimit || 0) - participantsCount, 0),
     cost: trip.cost,
     status: trip.status,
+    participants: (trip.participants || []).map(toPublicParticipant),
   };
+}
+
+function toPublicParticipant(participant) {
+  return {
+    id: participant.id,
+    fullName: participant.fullName,
+    cityName: participant.cityName,
+    status: participant.status,
+  };
+}
+
+function isRegistrationClosed(value) {
+  if (!value) {
+    return false;
+  }
+
+  const deadline = Date.parse(`${String(value).slice(0, 10)}T23:59:59Z`);
+
+  if (Number.isNaN(deadline)) {
+    return false;
+  }
+
+  return Date.now() > deadline;
 }
 
 function requiredText(value, fieldName, maxLength) {
@@ -465,24 +588,30 @@ async function readTrips() {
     await ensureDatabase();
     const result = await databasePool.query(`
       SELECT
-        id,
-        country_code,
-        country_name,
-        city_name,
-        description,
-        trip_date,
-        registration_deadline,
-        start_date,
-        end_date,
-        people_limit,
-        restrictions,
-        cost,
-        note,
-        status,
-        created_at,
-        updated_at
+        trips.id,
+        trips.country_code,
+        trips.country_name,
+        trips.city_name,
+        trips.description,
+        trips.trip_date,
+        trips.registration_deadline,
+        trips.start_date,
+        trips.end_date,
+        trips.people_limit,
+        trips.restrictions,
+        trips.cost,
+        trips.note,
+        trips.status,
+        trips.created_at,
+        trips.updated_at,
+        COALESCE(participant_counts.participants_count, 0) AS participants_count
       FROM trips
-      ORDER BY created_at DESC
+      LEFT JOIN (
+        SELECT trip_id, COUNT(*)::int AS participants_count
+        FROM trip_participants
+        GROUP BY trip_id
+      ) participant_counts ON participant_counts.trip_id = trips.id
+      ORDER BY trips.created_at DESC
     `);
 
     return result.rows.map(rowToTrip);
@@ -500,6 +629,61 @@ async function readTrips() {
   }
 
   return parsed;
+}
+
+async function getPublicTrips() {
+  if (databasePool) {
+    await ensureDatabase();
+    const result = await databasePool.query(`
+      SELECT
+        trips.id,
+        trips.country_code,
+        trips.country_name,
+        trips.city_name,
+        trips.description,
+        trips.trip_date,
+        trips.registration_deadline,
+        trips.start_date,
+        trips.end_date,
+        trips.people_limit,
+        trips.restrictions,
+        trips.cost,
+        trips.note,
+        trips.status,
+        trips.created_at,
+        trips.updated_at,
+        COALESCE(participant_counts.participants_count, 0) AS participants_count
+      FROM trips
+      LEFT JOIN (
+        SELECT trip_id, COUNT(*)::int AS participants_count
+        FROM trip_participants
+        GROUP BY trip_id
+      ) participant_counts ON participant_counts.trip_id = trips.id
+      ORDER BY trips.created_at DESC
+    `);
+
+    return result.rows.map((row) => toPublicTrip(rowToTrip(row)));
+  }
+
+  return (await readTrips()).map((trip) => toPublicTrip(trip));
+}
+
+async function getPublicTripRecord(id) {
+  const trip = await getTripRecord(id);
+
+  if (!trip) {
+    return null;
+  }
+
+  return toPublicTrip({
+    ...trip,
+    participants: (trip.participants || []).map((participant) => ({
+      id: participant.id,
+      fullName: participant.fullName,
+      cityName: participant.cityName,
+      status: participant.status,
+    })),
+  });
 }
 
 async function getTripRecord(id) {
@@ -542,6 +726,56 @@ async function getTripRecord(id) {
 
   const trip = (await readTrips()).find((item) => item.id === id) || null;
   return trip ? { ...trip, participants: trip.participants || [] } : null;
+}
+
+async function createTripParticipant(participant) {
+  if (databasePool) {
+    await ensureDatabase();
+    await databasePool.query(
+      `
+        INSERT INTO trip_participants (
+          id,
+          trip_id,
+          full_name,
+          city_name,
+          available_days,
+          phone,
+          email,
+          donation,
+          status,
+          created_at
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+      `,
+      [
+        participant.id,
+        participant.tripId,
+        participant.fullName,
+        participant.cityName,
+        participant.availableDays,
+        participant.phone,
+        participant.email,
+        participant.donation,
+        participant.status,
+        participant.createdAt,
+      ],
+    );
+    return;
+  }
+
+  const trips = await readTrips();
+  const nextTrips = trips.map((trip) => {
+    if (trip.id !== participant.tripId) {
+      return trip;
+    }
+
+    return {
+      ...trip,
+      participants: [...(trip.participants || []), participant],
+    };
+  });
+
+  writeTripsFile(nextTrips);
 }
 
 async function createTripRecord(trip) {
@@ -670,7 +904,7 @@ async function getTripParticipants(tripId) {
 
   const result = await databasePool.query(
     `
-      SELECT id, full_name, phone, email, status, created_at
+      SELECT id, full_name, city_name, available_days, phone, email, donation, status, created_at
       FROM trip_participants
       WHERE trip_id = $1
       ORDER BY created_at DESC
@@ -681,8 +915,11 @@ async function getTripParticipants(tripId) {
   return result.rows.map((row) => ({
     id: row.id,
     fullName: row.full_name,
+    cityName: row.city_name || "",
+    availableDays: Number(row.available_days || 0),
     phone: row.phone || "",
     email: row.email || "",
+    donation: row.donation || "",
     status: row.status,
     createdAt: row.created_at ? new Date(row.created_at).toISOString() : "",
   }));
@@ -742,15 +979,25 @@ async function migrateDatabase() {
       id TEXT PRIMARY KEY,
       trip_id TEXT NOT NULL REFERENCES trips(id) ON DELETE CASCADE,
       full_name TEXT NOT NULL,
+      city_name TEXT NOT NULL DEFAULT '',
+      available_days INTEGER NOT NULL DEFAULT 1,
       phone TEXT NOT NULL DEFAULT '',
       email TEXT NOT NULL DEFAULT '',
+      donation TEXT NOT NULL DEFAULT '',
       status TEXT NOT NULL DEFAULT 'accepted',
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
   `);
+
+  await databasePool.query("ALTER TABLE trip_participants ADD COLUMN IF NOT EXISTS city_name TEXT NOT NULL DEFAULT ''");
+  await databasePool.query("ALTER TABLE trip_participants ADD COLUMN IF NOT EXISTS available_days INTEGER NOT NULL DEFAULT 1");
+  await databasePool.query("ALTER TABLE trip_participants ADD COLUMN IF NOT EXISTS donation TEXT NOT NULL DEFAULT ''");
 }
 
 function rowToTrip(row) {
+  const participantsCount =
+    row.participants_count === undefined ? undefined : Number(row.participants_count || 0);
+
   return {
     id: row.id,
     countryCode: row.country_code,
@@ -762,6 +1009,9 @@ function rowToTrip(row) {
     startDate: formatDateOnly(row.start_date || row.trip_date),
     endDate: formatDateOnly(row.end_date || row.start_date || row.trip_date),
     peopleLimit: Number(row.people_limit),
+    participantsCount,
+    availableSpots:
+      participantsCount === undefined ? undefined : Math.max(Number(row.people_limit || 0) - participantsCount, 0),
     restrictions: row.restrictions,
     cost: row.cost,
     note: row.note || "",

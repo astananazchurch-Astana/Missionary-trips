@@ -1,4 +1,4 @@
-export type AppRoute = "/" | "/login" | "/admin";
+export type AppRoute = "/" | "/login" | "/admin" | "/apply";
 
 export const appBasePath = import.meta.env.BASE_URL.endsWith("/")
   ? import.meta.env.BASE_URL
@@ -22,7 +22,7 @@ export function getRouteFromLocation(location: Location = window.location): AppR
     pathname = `/${pathname}`;
   }
 
-  if (pathname === "/" || pathname === "/login" || pathname === "/admin") {
+  if (pathname === "/" || pathname === "/login" || pathname === "/admin" || pathname === "/apply") {
     return pathname;
   }
 

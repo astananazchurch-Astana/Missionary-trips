@@ -32,17 +32,24 @@ export type Trip = {
   note?: string;
   status: string;
   createdAt?: string;
+  participantsCount?: number;
+  availableSpots?: number;
   participants?: TripParticipant[];
 };
 
 export type TripParticipant = {
   id: string;
   fullName: string;
+  cityName?: string;
+  availableDays?: number;
   phone?: string;
   email?: string;
+  donation?: string;
   status: string;
   createdAt?: string;
 };
+
+export type PublicTripParticipant = Pick<TripParticipant, "id" | "fullName" | "cityName" | "status">;
 
 export type PublicTrip = Pick<
   Trip,
@@ -56,9 +63,13 @@ export type PublicTrip = Pick<
   | "startDate"
   | "endDate"
   | "peopleLimit"
+  | "participantsCount"
+  | "availableSpots"
   | "cost"
   | "status"
->;
+> & {
+  participants?: PublicTripParticipant[];
+};
 
 export type CreateTripInput = {
   countryCode: string;
@@ -71,6 +82,15 @@ export type CreateTripInput = {
   restrictions: string;
   cost: string;
   note: string;
+};
+
+export type TripApplicationInput = {
+  fullName: string;
+  cityName: string;
+  availableDays: number;
+  phone: string;
+  email: string;
+  donation: string;
 };
 
 export type DashboardSummary = {
@@ -171,6 +191,21 @@ export async function fetchPublicTrips() {
   const response = await apiFetch<{ trips: PublicTrip[] }>("/api/trips");
 
   return response.trips;
+}
+
+export async function fetchPublicTrip(id: string) {
+  const response = await apiFetch<{ trip: PublicTrip }>(`/api/trips/${id}`);
+
+  return response.trip;
+}
+
+export async function submitTripApplication(id: string, input: TripApplicationInput) {
+  const response = await apiFetch<{ participant: PublicTripParticipant }>(`/api/trips/${id}/participants`, {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+
+  return response.participant;
 }
 
 export async function fetchTrip(id: string) {

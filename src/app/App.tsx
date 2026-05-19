@@ -8,6 +8,7 @@ import { MissionSection } from "../sections/MissionSection";
 import { MinistrySection } from "../sections/MinistrySection";
 import { TripsSection } from "../sections/TripsSection";
 import { AdminPanel } from "../pages/AdminPanel";
+import { ApplyPage } from "../pages/ApplyPage";
 import { LoginPage } from "../pages/LoginPage";
 import { clearLegacyAuthData, hasAccessToken, signOutAdmin, verifyAdminSession } from "../shared/lib/auth";
 import { type AppRoute, appPath, getRouteFromLocation } from "../shared/lib/routes";
@@ -106,6 +107,10 @@ export function App() {
 
   if (route === "/login") {
     return <LoginPage homeHref={homeHref} onBack={goHome} onSuccess={handleLoginSuccess} />;
+  }
+
+  if (route === "/apply") {
+    return <ApplyPage homeHref={homeHref} onHome={goHome} />;
   }
 
   if (route === "/admin") {

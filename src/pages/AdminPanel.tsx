@@ -601,7 +601,7 @@ function TripsTable({ trips, isLoadingTrip, onOpenTrip }: TripsTableProps) {
               <span role="cell">{trip.cityName}</span>
               <span role="cell">до {formatDate(shortDate(trip.registrationDeadline || trip.date))}</span>
               <span role="cell">{formatDateRange(shortDate(trip.startDate || trip.date), shortDate(trip.endDate || trip.date))}</span>
-              <span role="cell">{trip.peopleLimit}</span>
+              <span role="cell">{getAvailableSpots(trip)} из {trip.peopleLimit}</span>
               <span role="cell">{trip.cost}</span>
             </button>
           ))}
@@ -673,7 +673,7 @@ function TripDetails({ trip, isDeleting, onBack, onDelete, onEdit }: TripDetails
         </div>
         <div>
           <dt>Кол-во людей</dt>
-          <dd>{trip.peopleLimit}</dd>
+          <dd>{getAvailableSpots(trip)} из {trip.peopleLimit}</dd>
         </div>
         <div>
           <dt>Стоимость</dt>
@@ -710,15 +710,21 @@ function TripDetails({ trip, isDeleting, onBack, onDelete, onEdit }: TripDetails
           <div className="participants-table" role="table" aria-label="Участники поездки">
             <div className="participants-table__row participants-table__row--head" role="row">
               <span role="columnheader">Имя</span>
+              <span role="columnheader">Город</span>
+              <span role="columnheader">Дней</span>
               <span role="columnheader">Телефон</span>
               <span role="columnheader">Email</span>
+              <span role="columnheader">Пожертвование</span>
               <span role="columnheader">Статус</span>
             </div>
             {participants.map((participant) => (
               <div className="participants-table__row" role="row" key={participant.id}>
                 <strong role="cell">{participant.fullName}</strong>
+                <span role="cell">{participant.cityName || "—"}</span>
+                <span role="cell">{participant.availableDays ? `${participant.availableDays}` : "—"}</span>
                 <span role="cell">{participant.phone || "—"}</span>
                 <span role="cell">{participant.email || "—"}</span>
+                <span role="cell">{participant.donation || "—"}</span>
                 <span role="cell">{participant.status}</span>
               </div>
             ))}
@@ -751,11 +757,15 @@ function tripToForm(trip: Trip): TripFormState {
 
 function buildMetrics(trips: Trip[]): AdminMetric[] {
   const peopleLimit = trips.reduce((total, trip) => total + Number(trip.peopleLimit || 0), 0);
+  const participantsCount = trips.reduce(
+    (total, trip) => total + Number(trip.participantsCount ?? trip.participants?.length ?? 0),
+    0,
+  );
 
   return [
     { id: "trips", label: "Активные поездки", value: String(trips.length) },
-    { id: "requests", label: "Новые заявки", value: "0" },
-    { id: "members", label: "Участники", value: String(peopleLimit) },
+    { id: "requests", label: "Новые заявки", value: String(participantsCount) },
+    { id: "members", label: "Места", value: String(peopleLimit) },
     { id: "reports", label: "Черновики отчетов", value: "0" },
   ];
 }
@@ -776,6 +786,16 @@ function countryFlag(code: string) {
   return code
     .toUpperCase()
     .replace(/./g, (char) => String.fromCodePoint(127397 + char.charCodeAt(0)));
+}
+
+function getAvailableSpots(trip: Trip) {
+  if (typeof trip.availableSpots === "number") {
+    return Math.max(trip.availableSpots, 0);
+  }
+
+  const participantsCount = Number(trip.participantsCount ?? trip.participants?.length ?? 0);
+
+  return Math.max(Number(trip.peopleLimit || 0) - participantsCount, 0);
 }
 
 function shortDate(value: string) {

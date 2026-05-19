@@ -6,5 +6,6 @@ dist/
 !.env.example
 npm-debug.log*
 dev-server*.log
+dev-*.log
 backend-server*.log
 server/data/*.json
