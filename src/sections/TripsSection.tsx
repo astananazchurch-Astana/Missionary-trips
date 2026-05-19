@@ -71,7 +71,11 @@ export function TripsSection({ loginHref, onLoginClick }: TripsSectionProps) {
                     <div className="landing-trip-card__meta">
                       <small>
                         <CalendarDays size={16} aria-hidden="true" />
-                        {formatDate(trip.date)}
+                        {formatDateRange(trip.startDate || trip.date, trip.endDate || trip.date)}
+                      </small>
+                      <small>
+                        <CalendarDays size={16} aria-hidden="true" />
+                        регистрация до {formatDate(trip.registrationDeadline || trip.date)}
                       </small>
                       <small>
                         <UsersRound size={16} aria-hidden="true" />
@@ -132,4 +136,12 @@ function formatDate(value: string) {
     month: "long",
     year: "numeric",
   }).format(new Date(`${value}T00:00:00`));
+}
+
+function formatDateRange(startDate: string, endDate: string) {
+  if (startDate === endDate) {
+    return formatDate(startDate);
+  }
+
+  return `${formatDate(startDate)} - ${formatDate(endDate)}`;
 }

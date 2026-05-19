@@ -42,7 +42,9 @@ type TripFormState = {
   countryCode: string;
   cityName: string;
   description: string;
-  date: string;
+  registrationDeadline: string;
+  startDate: string;
+  endDate: string;
   peopleLimit: string;
   restrictions: string;
   cost: string;
@@ -53,7 +55,9 @@ const emptyForm: TripFormState = {
   countryCode: "",
   cityName: "",
   description: "",
-  date: "",
+  registrationDeadline: "",
+  startDate: "",
+  endDate: "",
   peopleLimit: "",
   restrictions: "",
   cost: "",
@@ -151,13 +155,23 @@ export function AdminPanel({ homeHref, onHome, onLogout }: AdminPanelProps) {
   const handleSaveTrip = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setModalError("");
+
+    const validationError = validateTripForm(form);
+
+    if (validationError) {
+      setModalError(validationError);
+      return;
+    }
+
     setIsSaving(true);
 
     const payload: CreateTripInput = {
       countryCode: form.countryCode,
       cityName: form.cityName,
       description: form.description,
-      date: form.date,
+      registrationDeadline: form.registrationDeadline,
+      startDate: form.startDate,
+      endDate: form.endDate,
       peopleLimit: Number(form.peopleLimit),
       restrictions: form.restrictions,
       cost: form.cost,
@@ -179,7 +193,7 @@ export function AdminPanel({ homeHref, onHome, onLogout }: AdminPanelProps) {
       });
 
       if (editingTrip) {
-        setSelectedTrip(savedTrip);
+        setSelectedTrip({ ...savedTrip, participants: editingTrip.participants || [] });
       }
 
       closeTripModal();
@@ -417,14 +431,40 @@ export function AdminPanel({ homeHref, onHome, onLogout }: AdminPanelProps) {
               </label>
 
               <label className="form-field">
-                <span>Дата</span>
+                <span>Регистрация до</span>
                 <div className="input-shell">
                   <CalendarDays size={19} aria-hidden="true" />
                   <input
                     required
                     type="date"
-                    value={form.date}
-                    onChange={(event) => updateForm("date", event.target.value)}
+                    value={form.registrationDeadline}
+                    onChange={(event) => updateForm("registrationDeadline", event.target.value)}
+                  />
+                </div>
+              </label>
+
+              <label className="form-field">
+                <span>Начало поездки</span>
+                <div className="input-shell">
+                  <CalendarDays size={19} aria-hidden="true" />
+                  <input
+                    required
+                    type="date"
+                    value={form.startDate}
+                    onChange={(event) => updateForm("startDate", event.target.value)}
+                  />
+                </div>
+              </label>
+
+              <label className="form-field">
+                <span>Окончание поездки</span>
+                <div className="input-shell">
+                  <CalendarDays size={19} aria-hidden="true" />
+                  <input
+                    required
+                    type="date"
+                    value={form.endDate}
+                    onChange={(event) => updateForm("endDate", event.target.value)}
                   />
                 </div>
               </label>
@@ -541,7 +581,8 @@ function TripsTable({ trips, isLoadingTrip, onOpenTrip }: TripsTableProps) {
           <div className="admin-table__row admin-table__row--head admin-table__row--trips" role="row">
             <span role="columnheader">Страна</span>
             <span role="columnheader">Город</span>
-            <span role="columnheader">Дата</span>
+            <span role="columnheader">Регистрация</span>
+            <span role="columnheader">Даты поездки</span>
             <span role="columnheader">Людей</span>
             <span role="columnheader">Стоимость</span>
           </div>
@@ -554,9 +595,12 @@ function TripsTable({ trips, isLoadingTrip, onOpenTrip }: TripsTableProps) {
               disabled={isLoadingTrip}
               onClick={() => onOpenTrip(trip.id)}
             >
-              <strong role="cell">{trip.countryName}</strong>
+              <strong role="cell">
+                {countryFlag(trip.countryCode)} {trip.countryName}
+              </strong>
               <span role="cell">{trip.cityName}</span>
-              <span role="cell">{formatDate(trip.date)}</span>
+              <span role="cell">до {formatDate(shortDate(trip.registrationDeadline || trip.date))}</span>
+              <span role="cell">{formatDateRange(shortDate(trip.startDate || trip.date), shortDate(trip.endDate || trip.date))}</span>
               <span role="cell">{trip.peopleLimit}</span>
               <span role="cell">{trip.cost}</span>
             </button>
@@ -581,6 +625,8 @@ type TripDetailsProps = {
 };
 
 function TripDetails({ trip, isDeleting, onBack, onDelete, onEdit }: TripDetailsProps) {
+  const participants = trip.participants || [];
+
   return (
     <section className="admin-panel trip-detail">
       <button className="detail-back" type="button" onClick={onBack}>
@@ -592,7 +638,7 @@ function TripDetails({ trip, isDeleting, onBack, onDelete, onEdit }: TripDetails
         <div>
           <span className="admin-kicker">Подробности поездки</span>
           <h2>
-            {trip.cityName}, {trip.countryName}
+            {countryFlag(trip.countryCode)} {trip.cityName}, {trip.countryName}
           </h2>
         </div>
         <div className="trip-detail__actions">
@@ -618,8 +664,12 @@ function TripDetails({ trip, isDeleting, onBack, onDelete, onEdit }: TripDetails
           <dd>{trip.cityName}</dd>
         </div>
         <div>
-          <dt>Дата</dt>
-          <dd>{formatDate(trip.date)}</dd>
+          <dt>Регистрация до</dt>
+          <dd>{formatDate(shortDate(trip.registrationDeadline || trip.date))}</dd>
+        </div>
+        <div>
+          <dt>Даты поездки</dt>
+          <dd>{formatDateRange(shortDate(trip.startDate || trip.date), shortDate(trip.endDate || trip.date))}</dd>
         </div>
         <div>
           <dt>Кол-во людей</dt>
@@ -646,6 +696,40 @@ function TripDetails({ trip, isDeleting, onBack, onDelete, onEdit }: TripDetails
           <p>{trip.note}</p>
         </div>
       ) : null}
+
+      <div className="trip-detail__section">
+        <div className="participants-header">
+          <div>
+            <h3>Участники поездки</h3>
+            <p>Здесь будут отображаться люди, которые подтвердили участие в этой поездке.</p>
+          </div>
+          <span className="status-pill">{participants.length} согласились</span>
+        </div>
+
+        {participants.length ? (
+          <div className="participants-table" role="table" aria-label="Участники поездки">
+            <div className="participants-table__row participants-table__row--head" role="row">
+              <span role="columnheader">Имя</span>
+              <span role="columnheader">Телефон</span>
+              <span role="columnheader">Email</span>
+              <span role="columnheader">Статус</span>
+            </div>
+            {participants.map((participant) => (
+              <div className="participants-table__row" role="row" key={participant.id}>
+                <strong role="cell">{participant.fullName}</strong>
+                <span role="cell">{participant.phone || "—"}</span>
+                <span role="cell">{participant.email || "—"}</span>
+                <span role="cell">{participant.status}</span>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="empty-state empty-state--compact">
+            <h3>Пока нет участников</h3>
+            <p>Когда подключим заявки пользователей, подтвержденные люди появятся в этой таблице.</p>
+          </div>
+        )}
+      </div>
     </section>
   );
 }
@@ -655,7 +739,9 @@ function tripToForm(trip: Trip): TripFormState {
     countryCode: trip.countryCode,
     cityName: trip.cityName,
     description: trip.description || "",
-    date: trip.date,
+    registrationDeadline: shortDate(trip.registrationDeadline || trip.date),
+    startDate: shortDate(trip.startDate || trip.date),
+    endDate: shortDate(trip.endDate || trip.startDate || trip.date),
     peopleLimit: String(trip.peopleLimit),
     restrictions: trip.restrictions || "",
     cost: trip.cost,
@@ -674,10 +760,48 @@ function buildMetrics(trips: Trip[]): AdminMetric[] {
   ];
 }
 
+function validateTripForm(form: TripFormState) {
+  if (form.registrationDeadline > form.startDate) {
+    return "Дата закрытия регистрации не может быть позже начала поездки.";
+  }
+
+  if (form.endDate < form.startDate) {
+    return "Дата окончания поездки не может быть раньше даты начала.";
+  }
+
+  return "";
+}
+
+function countryFlag(code: string) {
+  return code
+    .toUpperCase()
+    .replace(/./g, (char) => String.fromCodePoint(127397 + char.charCodeAt(0)));
+}
+
+function shortDate(value: string) {
+  return value ? value.slice(0, 10) : "";
+}
+
 function formatDate(value: string) {
+  if (!value) {
+    return "—";
+  }
+
   return new Intl.DateTimeFormat("ru", {
     day: "numeric",
     month: "long",
     year: "numeric",
   }).format(new Date(`${value}T00:00:00`));
+}
+
+function formatDateRange(startDate: string, endDate: string) {
+  if (!startDate && !endDate) {
+    return "—";
+  }
+
+  if (startDate === endDate) {
+    return formatDate(startDate);
+  }
+
+  return `${formatDate(startDate)} - ${formatDate(endDate)}`;
 }

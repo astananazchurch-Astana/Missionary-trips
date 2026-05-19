@@ -23,24 +23,50 @@ export type Trip = {
   cityName: string;
   description?: string;
   date: string;
+  registrationDeadline: string;
+  startDate: string;
+  endDate: string;
   peopleLimit: number;
   restrictions?: string;
   cost: string;
   note?: string;
   status: string;
   createdAt?: string;
+  participants?: TripParticipant[];
+};
+
+export type TripParticipant = {
+  id: string;
+  fullName: string;
+  phone?: string;
+  email?: string;
+  status: string;
+  createdAt?: string;
 };
 
 export type PublicTrip = Pick<
   Trip,
-  "id" | "countryCode" | "countryName" | "cityName" | "description" | "date" | "peopleLimit" | "cost" | "status"
+  | "id"
+  | "countryCode"
+  | "countryName"
+  | "cityName"
+  | "description"
+  | "date"
+  | "registrationDeadline"
+  | "startDate"
+  | "endDate"
+  | "peopleLimit"
+  | "cost"
+  | "status"
 >;
 
 export type CreateTripInput = {
   countryCode: string;
   cityName: string;
   description: string;
-  date: string;
+  registrationDeadline: string;
+  startDate: string;
+  endDate: string;
   peopleLimit: number;
   restrictions: string;
   cost: string;

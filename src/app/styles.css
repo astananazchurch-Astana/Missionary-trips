@@ -1090,9 +1090,10 @@ textarea {
 
 .admin-table__row--trips {
   grid-template-columns:
-    minmax(170px, 1fr)
-    minmax(150px, 1fr)
-    minmax(150px, 0.82fr)
+    minmax(180px, 1fr)
+    minmax(130px, 0.82fr)
+    minmax(150px, 0.9fr)
+    minmax(190px, 1fr)
     minmax(90px, 0.52fr)
     minmax(130px, 0.72fr);
 }
@@ -1183,6 +1184,11 @@ textarea {
   line-height: 1.6;
 }
 
+.empty-state--compact {
+  min-height: 180px;
+  margin-top: 14px;
+}
+
 .modal-backdrop {
   position: fixed;
   z-index: 80;
@@ -1195,7 +1201,7 @@ textarea {
 }
 
 .trip-modal {
-  width: min(560px, 100%);
+  width: min(760px, 100%);
   max-height: calc(100svh - 28px);
   overflow-y: auto;
   margin: auto;
@@ -1372,6 +1378,48 @@ textarea {
   font-size: 1.02rem;
   line-height: 1.7;
   white-space: pre-wrap;
+}
+
+.participants-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.participants-header h3,
+.participants-header p {
+  margin: 0;
+}
+
+.participants-header p {
+  margin-top: 6px;
+  color: var(--muted);
+}
+
+.participants-table {
+  margin-top: 16px;
+  overflow-x: auto;
+}
+
+.participants-table__row {
+  display: grid;
+  grid-template-columns:
+    minmax(190px, 1.1fr)
+    minmax(150px, 0.8fr)
+    minmax(190px, 1fr)
+    minmax(120px, 0.7fr);
+  gap: 14px;
+  min-width: 720px;
+  padding: 14px 0;
+  border-top: 1px solid var(--line);
+}
+
+.participants-table__row--head {
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 900;
+  text-transform: uppercase;
 }
 
 .contacts-section {
@@ -1893,7 +1941,8 @@ textarea {
   .admin-topbar,
   .admin-panel__header,
   .trip-modal__header,
-  .trip-detail__header {
+  .trip-detail__header,
+  .participants-header {
     display: grid;
   }
 

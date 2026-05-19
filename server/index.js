@@ -321,11 +321,25 @@ function buildTrip(body, existingTrip = null) {
     throw httpError(400, "Unknown country.");
   }
 
-  const date = requiredText(body.date, "date", 32);
+  const startDate = requiredText(body.startDate || body.date, "startDate", 32);
+  const endDate = requiredText(body.endDate || body.startDate || body.date, "endDate", 32);
+  const registrationDeadline = requiredText(
+    body.registrationDeadline || body.registrationCloseDate || body.date,
+    "registrationDeadline",
+    32,
+  );
   const peopleLimit = Number(body.peopleLimit);
 
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || Number.isNaN(Date.parse(`${date}T00:00:00Z`))) {
-    throw httpError(400, "Date must use YYYY-MM-DD format.");
+  validateDate(startDate, "startDate");
+  validateDate(endDate, "endDate");
+  validateDate(registrationDeadline, "registrationDeadline");
+
+  if (Date.parse(`${endDate}T00:00:00Z`) < Date.parse(`${startDate}T00:00:00Z`)) {
+    throw httpError(400, "endDate must be later than or equal to startDate.");
+  }
+
+  if (Date.parse(`${registrationDeadline}T00:00:00Z`) > Date.parse(`${startDate}T00:00:00Z`)) {
+    throw httpError(400, "registrationDeadline must be earlier than or equal to startDate.");
   }
 
   if (!Number.isInteger(peopleLimit) || peopleLimit < 1) {
@@ -338,7 +352,10 @@ function buildTrip(body, existingTrip = null) {
     countryName: getCountryName(countryCode, country.name),
     cityName: requiredText(body.cityName, "cityName", 160),
     description: requiredText(body.description, "description", 2000),
-    date,
+    date: startDate,
+    registrationDeadline,
+    startDate,
+    endDate,
     peopleLimit,
     restrictions: requiredText(body.restrictions, "restrictions", 1000),
     cost: requiredText(body.cost, "cost", 160),
@@ -347,6 +364,12 @@ function buildTrip(body, existingTrip = null) {
     createdAt: existingTrip?.createdAt || new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   };
+}
+
+function validateDate(value, fieldName) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value) || Number.isNaN(Date.parse(`${value}T00:00:00Z`))) {
+    throw httpError(400, `${fieldName} must use YYYY-MM-DD format.`);
+  }
 }
 
 function getDashboardMetrics(trips) {
@@ -366,7 +389,10 @@ function toTripListItem(trip) {
     countryCode: trip.countryCode,
     countryName: trip.countryName,
     cityName: trip.cityName,
-    date: trip.date,
+    date: trip.startDate || trip.date,
+    registrationDeadline: trip.registrationDeadline || trip.date,
+    startDate: trip.startDate || trip.date,
+    endDate: trip.endDate || trip.startDate || trip.date,
     peopleLimit: trip.peopleLimit,
     cost: trip.cost,
     status: trip.status,
@@ -380,7 +406,10 @@ function toPublicTrip(trip) {
     countryName: trip.countryName,
     cityName: trip.cityName,
     description: trip.description,
-    date: trip.date,
+    date: trip.startDate || trip.date,
+    registrationDeadline: trip.registrationDeadline || trip.date,
+    startDate: trip.startDate || trip.date,
+    endDate: trip.endDate || trip.startDate || trip.date,
     peopleLimit: trip.peopleLimit,
     cost: trip.cost,
     status: trip.status,
@@ -442,6 +471,9 @@ async function readTrips() {
         city_name,
         description,
         trip_date,
+        registration_deadline,
+        start_date,
+        end_date,
         people_limit,
         restrictions,
         cost,
@@ -482,6 +514,9 @@ async function getTripRecord(id) {
           city_name,
           description,
           trip_date,
+          registration_deadline,
+          start_date,
+          end_date,
           people_limit,
           restrictions,
           cost,
@@ -495,10 +530,18 @@ async function getTripRecord(id) {
       [id],
     );
 
-    return result.rows[0] ? rowToTrip(result.rows[0]) : null;
+    if (!result.rows[0]) {
+      return null;
+    }
+
+    const trip = rowToTrip(result.rows[0]);
+    trip.participants = await getTripParticipants(id);
+
+    return trip;
   }
 
-  return (await readTrips()).find((item) => item.id === id) || null;
+  const trip = (await readTrips()).find((item) => item.id === id) || null;
+  return trip ? { ...trip, participants: trip.participants || [] } : null;
 }
 
 async function createTripRecord(trip) {
@@ -513,6 +556,9 @@ async function createTripRecord(trip) {
           city_name,
           description,
           trip_date,
+          registration_deadline,
+          start_date,
+          end_date,
           people_limit,
           restrictions,
           cost,
@@ -521,7 +567,7 @@ async function createTripRecord(trip) {
           created_at,
           updated_at
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
       `,
       [
         trip.id,
@@ -530,6 +576,9 @@ async function createTripRecord(trip) {
         trip.cityName,
         trip.description,
         trip.date,
+        trip.registrationDeadline,
+        trip.startDate,
+        trip.endDate,
         trip.peopleLimit,
         trip.restrictions,
         trip.cost,
@@ -559,12 +608,15 @@ async function updateTripRecord(trip) {
           city_name = $4,
           description = $5,
           trip_date = $6,
-          people_limit = $7,
-          restrictions = $8,
-          cost = $9,
-          note = $10,
-          status = $11,
-          updated_at = $12
+          registration_deadline = $7,
+          start_date = $8,
+          end_date = $9,
+          people_limit = $10,
+          restrictions = $11,
+          cost = $12,
+          note = $13,
+          status = $14,
+          updated_at = $15
         WHERE id = $1
       `,
       [
@@ -574,6 +626,9 @@ async function updateTripRecord(trip) {
         trip.cityName,
         trip.description,
         trip.date,
+        trip.registrationDeadline,
+        trip.startDate,
+        trip.endDate,
         trip.peopleLimit,
         trip.restrictions,
         trip.cost,
@@ -608,32 +663,91 @@ async function deleteTripRecord(id) {
   return true;
 }
 
+async function getTripParticipants(tripId) {
+  if (!databasePool) {
+    return [];
+  }
+
+  const result = await databasePool.query(
+    `
+      SELECT id, full_name, phone, email, status, created_at
+      FROM trip_participants
+      WHERE trip_id = $1
+      ORDER BY created_at DESC
+    `,
+    [tripId],
+  );
+
+  return result.rows.map((row) => ({
+    id: row.id,
+    fullName: row.full_name,
+    phone: row.phone || "",
+    email: row.email || "",
+    status: row.status,
+    createdAt: row.created_at ? new Date(row.created_at).toISOString() : "",
+  }));
+}
+
 async function ensureDatabase() {
   if (!databasePool) {
     return;
   }
 
   if (!databaseReadyPromise) {
-    databaseReadyPromise = databasePool.query(`
-      CREATE TABLE IF NOT EXISTS trips (
-        id TEXT PRIMARY KEY,
-        country_code TEXT NOT NULL,
-        country_name TEXT NOT NULL,
-        city_name TEXT NOT NULL,
-        description TEXT NOT NULL,
-        trip_date DATE NOT NULL,
-        people_limit INTEGER NOT NULL,
-        restrictions TEXT NOT NULL,
-        cost TEXT NOT NULL,
-        note TEXT NOT NULL DEFAULT '',
-        status TEXT NOT NULL,
-        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-      )
-    `);
+    databaseReadyPromise = migrateDatabase();
   }
 
   await databaseReadyPromise;
+}
+
+async function migrateDatabase() {
+  await databasePool.query(`
+    CREATE TABLE IF NOT EXISTS trips (
+      id TEXT PRIMARY KEY,
+      country_code TEXT NOT NULL,
+      country_name TEXT NOT NULL,
+      city_name TEXT NOT NULL,
+      description TEXT NOT NULL,
+      trip_date DATE NOT NULL,
+      registration_deadline DATE,
+      start_date DATE,
+      end_date DATE,
+      people_limit INTEGER NOT NULL,
+      restrictions TEXT NOT NULL,
+      cost TEXT NOT NULL,
+      note TEXT NOT NULL DEFAULT '',
+      status TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+
+  await databasePool.query("ALTER TABLE trips ADD COLUMN IF NOT EXISTS registration_deadline DATE");
+  await databasePool.query("ALTER TABLE trips ADD COLUMN IF NOT EXISTS start_date DATE");
+  await databasePool.query("ALTER TABLE trips ADD COLUMN IF NOT EXISTS end_date DATE");
+  await databasePool.query(`
+    UPDATE trips
+    SET
+      registration_deadline = COALESCE(registration_deadline, trip_date),
+      start_date = COALESCE(start_date, trip_date),
+      end_date = COALESCE(end_date, trip_date)
+    WHERE registration_deadline IS NULL OR start_date IS NULL OR end_date IS NULL
+  `);
+  await databasePool.query("ALTER TABLE trips ALTER COLUMN registration_deadline SET NOT NULL");
+  await databasePool.query("ALTER TABLE trips ALTER COLUMN start_date SET NOT NULL");
+  await databasePool.query("ALTER TABLE trips ALTER COLUMN end_date SET NOT NULL");
+
+  await databasePool.query(`
+    CREATE TABLE IF NOT EXISTS trip_participants (
+      id TEXT PRIMARY KEY,
+      trip_id TEXT NOT NULL REFERENCES trips(id) ON DELETE CASCADE,
+      full_name TEXT NOT NULL,
+      phone TEXT NOT NULL DEFAULT '',
+      email TEXT NOT NULL DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'accepted',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
 }
 
 function rowToTrip(row) {
@@ -643,7 +757,10 @@ function rowToTrip(row) {
     countryName: row.country_name,
     cityName: row.city_name,
     description: row.description,
-    date: formatDateOnly(row.trip_date),
+    date: formatDateOnly(row.start_date || row.trip_date),
+    registrationDeadline: formatDateOnly(row.registration_deadline || row.trip_date),
+    startDate: formatDateOnly(row.start_date || row.trip_date),
+    endDate: formatDateOnly(row.end_date || row.start_date || row.trip_date),
     peopleLimit: Number(row.people_limit),
     restrictions: row.restrictions,
     cost: row.cost,
