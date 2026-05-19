@@ -559,6 +559,82 @@ textarea {
   color: var(--green);
 }
 
+.trips-loading {
+  margin: 28px 0 0;
+  color: var(--muted);
+  font-weight: 750;
+}
+
+.landing-trips-grid {
+  display: grid;
+  gap: 14px;
+  margin-top: 26px;
+  max-height: 48vh;
+  overflow: auto;
+  padding-right: 8px;
+}
+
+.landing-trip-card {
+  display: grid;
+  grid-template-columns: 58px minmax(0, 1fr);
+  gap: 16px;
+  padding: 18px;
+  border: 1px solid rgba(9, 8, 7, 0.12);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.84);
+  box-shadow: 0 16px 46px rgba(33, 28, 22, 0.08);
+}
+
+.landing-trip-card__flag {
+  display: grid;
+  width: 54px;
+  height: 54px;
+  place-items: center;
+  border-radius: 8px;
+  background: var(--black);
+  font-size: 2rem;
+}
+
+.landing-trip-card span {
+  color: var(--green);
+  font-size: 0.82rem;
+  font-weight: 900;
+}
+
+.landing-trip-card h3 {
+  margin: 5px 0 8px;
+  font-size: 1.22rem;
+  line-height: 1.18;
+}
+
+.landing-trip-card p {
+  display: -webkit-box;
+  margin: 0;
+  overflow: hidden;
+  color: var(--muted);
+  line-height: 1.55;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.landing-trip-card__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 13px;
+}
+
+.landing-trip-card__meta small {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 9px;
+  border-radius: 6px;
+  color: var(--ink);
+  background: var(--ivory);
+  font-weight: 800;
+}
+
 .trip-feature {
   padding: clamp(26px, 4vw, 42px);
   color: white;
@@ -1314,6 +1390,7 @@ textarea {
   .reveal-ready [data-reveal] .fact-panel,
   .reveal-ready [data-reveal] .value-card,
   .reveal-ready [data-reveal] .ministry-card,
+  .reveal-ready [data-reveal] .landing-trip-card,
   .reveal-ready [data-reveal] .check-list span,
   .reveal-ready [data-reveal] .trip-feature,
   .reveal-ready [data-reveal] .contact-row,
@@ -1332,6 +1409,7 @@ textarea {
   .reveal-ready [data-reveal].is-visible .fact-panel,
   .reveal-ready [data-reveal].is-visible .value-card,
   .reveal-ready [data-reveal].is-visible .ministry-card,
+  .reveal-ready [data-reveal].is-visible .landing-trip-card,
   .reveal-ready [data-reveal].is-visible .check-list span,
   .reveal-ready [data-reveal].is-visible .trip-feature,
   .reveal-ready [data-reveal].is-visible .contact-row,
@@ -1346,6 +1424,7 @@ textarea {
 
   .reveal-ready [data-reveal].is-visible .value-card:nth-child(2),
   .reveal-ready [data-reveal].is-visible .ministry-card:nth-child(2),
+  .reveal-ready [data-reveal].is-visible .landing-trip-card:nth-child(2),
   .reveal-ready [data-reveal].is-visible .check-list span:nth-child(2),
   .reveal-ready [data-reveal].is-visible .contact-row:nth-child(2) {
     transition-delay: 60ms;
@@ -1353,12 +1432,14 @@ textarea {
 
   .reveal-ready [data-reveal].is-visible .value-card:nth-child(3),
   .reveal-ready [data-reveal].is-visible .ministry-card:nth-child(3),
+  .reveal-ready [data-reveal].is-visible .landing-trip-card:nth-child(3),
   .reveal-ready [data-reveal].is-visible .check-list span:nth-child(3),
   .reveal-ready [data-reveal].is-visible .contact-row:nth-child(3) {
     transition-delay: 120ms;
   }
 
   .reveal-ready [data-reveal].is-visible .ministry-card:nth-child(4),
+  .reveal-ready [data-reveal].is-visible .landing-trip-card:nth-child(4),
   .reveal-ready [data-reveal].is-visible .check-list span:nth-child(4) {
     transition-delay: 180ms;
   }
@@ -1627,6 +1708,18 @@ textarea {
   .map-frame iframe {
     min-height: 390px;
   }
+
+  .landing-trips-grid {
+    max-height: 42vh;
+  }
+
+  .landing-trip-card {
+    padding: 15px;
+  }
+
+  .landing-trip-card h3 {
+    font-size: 1.12rem;
+  }
 }
 
 @media (max-width: 1040px) {
@@ -1843,5 +1936,15 @@ textarea {
   .map-frame,
   .map-frame iframe {
     min-height: 360px;
+  }
+
+  .landing-trips-grid {
+    max-height: none;
+    overflow: visible;
+    padding-right: 0;
+  }
+
+  .landing-trip-card {
+    grid-template-columns: 1fr;
   }
 }

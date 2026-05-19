@@ -10,8 +10,10 @@ import { dirname, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 import { City, Country } from "country-state-city";
+import pg from "pg";
 
 const scrypt = promisify(scryptCallback);
+const { Pool } = pg;
 
 loadEnvFile();
 
@@ -29,6 +31,20 @@ const DEFAULT_TRIPS_DATA_FILE = process.env.VERCEL
   ? "/tmp/missionary-trips.json"
   : "server/data/trips.json";
 const TRIPS_DATA_FILE = resolve(process.cwd(), process.env.TRIPS_DATA_FILE || DEFAULT_TRIPS_DATA_FILE);
+const DATABASE_URL =
+  process.env.DATABASE_URL ||
+  process.env.POSTGRES_URL ||
+  process.env.POSTGRES_PRISMA_URL ||
+  process.env.POSTGRES_URL_NON_POOLING ||
+  process.env.STORAGE_URL ||
+  "";
+const databasePool = DATABASE_URL
+  ? new Pool({
+      connectionString: DATABASE_URL,
+      ssl: DATABASE_URL.includes("sslmode=disable") ? false : { rejectUnauthorized: false },
+    })
+  : null;
+let databaseReadyPromise = null;
 const countryDisplayNames = new Intl.DisplayNames(["ru"], { type: "region" });
 
 if (process.env.NODE_ENV === "production" && JWT_SECRET === "development-only-change-this-secret") {
@@ -46,7 +62,14 @@ export default async function handleRequest(request, response) {
 
   try {
     if (request.method === "GET" && url.pathname === "/api/health") {
-      sendJson(response, 200, { ok: true }, origin);
+      sendJson(response, 200, { ok: true, storage: databasePool ? "postgres" : "json" }, origin);
+      return;
+    }
+
+    if (request.method === "GET" && url.pathname === "/api/trips") {
+      const trips = await readTrips();
+
+      sendJson(response, 200, { trips: trips.map(toPublicTrip) }, origin);
       return;
     }
 
@@ -96,7 +119,7 @@ export default async function handleRequest(request, response) {
         return;
       }
 
-      const trips = readTrips();
+      const trips = await readTrips();
 
       sendJson(
         response,
@@ -117,7 +140,7 @@ export default async function handleRequest(request, response) {
         return;
       }
 
-      sendJson(response, 200, { trips: readTrips().map(toTripListItem) }, origin);
+      sendJson(response, 200, { trips: (await readTrips()).map(toTripListItem) }, origin);
       return;
     }
 
@@ -129,10 +152,7 @@ export default async function handleRequest(request, response) {
 
       const body = await readJsonBody(request);
       const trip = buildTrip(body);
-      const trips = readTrips();
-
-      trips.unshift(trip);
-      writeTrips(trips);
+      await createTripRecord(trip);
 
       sendJson(response, 201, { trip }, origin);
       return;
@@ -146,7 +166,7 @@ export default async function handleRequest(request, response) {
         return;
       }
 
-      const trip = readTrips().find((item) => item.id === tripMatch[1]);
+      const trip = await getTripRecord(tripMatch[1]);
 
       if (!trip) {
         sendJson(response, 404, { message: "Trip not found." }, origin);
@@ -163,7 +183,7 @@ export default async function handleRequest(request, response) {
         return;
       }
 
-      const trips = readTrips();
+      const trips = await readTrips();
       const tripIndex = trips.findIndex((item) => item.id === tripMatch[1]);
 
       if (tripIndex === -1) {
@@ -173,9 +193,7 @@ export default async function handleRequest(request, response) {
 
       const body = await readJsonBody(request);
       const trip = buildTrip(body, trips[tripIndex]);
-
-      trips[tripIndex] = trip;
-      writeTrips(trips);
+      await updateTripRecord(trip);
 
       sendJson(response, 200, { trip }, origin);
       return;
@@ -187,15 +205,12 @@ export default async function handleRequest(request, response) {
         return;
       }
 
-      const trips = readTrips();
-      const nextTrips = trips.filter((item) => item.id !== tripMatch[1]);
+      const isDeleted = await deleteTripRecord(tripMatch[1]);
 
-      if (nextTrips.length === trips.length) {
+      if (!isDeleted) {
         sendJson(response, 404, { message: "Trip not found." }, origin);
         return;
       }
-
-      writeTrips(nextTrips);
 
       sendJson(response, 200, { ok: true }, origin);
       return;
@@ -358,6 +373,20 @@ function toTripListItem(trip) {
   };
 }
 
+function toPublicTrip(trip) {
+  return {
+    id: trip.id,
+    countryCode: trip.countryCode,
+    countryName: trip.countryName,
+    cityName: trip.cityName,
+    description: trip.description,
+    date: trip.date,
+    peopleLimit: trip.peopleLimit,
+    cost: trip.cost,
+    status: trip.status,
+  };
+}
+
 function requiredText(value, fieldName, maxLength) {
   if (typeof value !== "string") {
     throw httpError(400, `${fieldName} is required.`);
@@ -402,7 +431,31 @@ function getCountryName(countryCode, fallbackName) {
   }
 }
 
-function readTrips() {
+async function readTrips() {
+  if (databasePool) {
+    await ensureDatabase();
+    const result = await databasePool.query(`
+      SELECT
+        id,
+        country_code,
+        country_name,
+        city_name,
+        description,
+        trip_date,
+        people_limit,
+        restrictions,
+        cost,
+        note,
+        status,
+        created_at,
+        updated_at
+      FROM trips
+      ORDER BY created_at DESC
+    `);
+
+    return result.rows.map(rowToTrip);
+  }
+
   if (!existsSync(TRIPS_DATA_FILE)) {
     return [];
   }
@@ -417,7 +470,199 @@ function readTrips() {
   return parsed;
 }
 
-function writeTrips(trips) {
+async function getTripRecord(id) {
+  if (databasePool) {
+    await ensureDatabase();
+    const result = await databasePool.query(
+      `
+        SELECT
+          id,
+          country_code,
+          country_name,
+          city_name,
+          description,
+          trip_date,
+          people_limit,
+          restrictions,
+          cost,
+          note,
+          status,
+          created_at,
+          updated_at
+        FROM trips
+        WHERE id = $1
+      `,
+      [id],
+    );
+
+    return result.rows[0] ? rowToTrip(result.rows[0]) : null;
+  }
+
+  return (await readTrips()).find((item) => item.id === id) || null;
+}
+
+async function createTripRecord(trip) {
+  if (databasePool) {
+    await ensureDatabase();
+    await databasePool.query(
+      `
+        INSERT INTO trips (
+          id,
+          country_code,
+          country_name,
+          city_name,
+          description,
+          trip_date,
+          people_limit,
+          restrictions,
+          cost,
+          note,
+          status,
+          created_at,
+          updated_at
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+      `,
+      [
+        trip.id,
+        trip.countryCode,
+        trip.countryName,
+        trip.cityName,
+        trip.description,
+        trip.date,
+        trip.peopleLimit,
+        trip.restrictions,
+        trip.cost,
+        trip.note,
+        trip.status,
+        trip.createdAt,
+        trip.updatedAt,
+      ],
+    );
+    return;
+  }
+
+  const trips = await readTrips();
+  trips.unshift(trip);
+  writeTripsFile(trips);
+}
+
+async function updateTripRecord(trip) {
+  if (databasePool) {
+    await ensureDatabase();
+    await databasePool.query(
+      `
+        UPDATE trips
+        SET
+          country_code = $2,
+          country_name = $3,
+          city_name = $4,
+          description = $5,
+          trip_date = $6,
+          people_limit = $7,
+          restrictions = $8,
+          cost = $9,
+          note = $10,
+          status = $11,
+          updated_at = $12
+        WHERE id = $1
+      `,
+      [
+        trip.id,
+        trip.countryCode,
+        trip.countryName,
+        trip.cityName,
+        trip.description,
+        trip.date,
+        trip.peopleLimit,
+        trip.restrictions,
+        trip.cost,
+        trip.note,
+        trip.status,
+        trip.updatedAt,
+      ],
+    );
+    return;
+  }
+
+  const trips = await readTrips();
+  const nextTrips = trips.map((item) => (item.id === trip.id ? trip : item));
+  writeTripsFile(nextTrips);
+}
+
+async function deleteTripRecord(id) {
+  if (databasePool) {
+    await ensureDatabase();
+    const result = await databasePool.query("DELETE FROM trips WHERE id = $1", [id]);
+    return result.rowCount > 0;
+  }
+
+  const trips = await readTrips();
+  const nextTrips = trips.filter((item) => item.id !== id);
+
+  if (nextTrips.length === trips.length) {
+    return false;
+  }
+
+  writeTripsFile(nextTrips);
+  return true;
+}
+
+async function ensureDatabase() {
+  if (!databasePool) {
+    return;
+  }
+
+  if (!databaseReadyPromise) {
+    databaseReadyPromise = databasePool.query(`
+      CREATE TABLE IF NOT EXISTS trips (
+        id TEXT PRIMARY KEY,
+        country_code TEXT NOT NULL,
+        country_name TEXT NOT NULL,
+        city_name TEXT NOT NULL,
+        description TEXT NOT NULL,
+        trip_date DATE NOT NULL,
+        people_limit INTEGER NOT NULL,
+        restrictions TEXT NOT NULL,
+        cost TEXT NOT NULL,
+        note TEXT NOT NULL DEFAULT '',
+        status TEXT NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `);
+  }
+
+  await databaseReadyPromise;
+}
+
+function rowToTrip(row) {
+  return {
+    id: row.id,
+    countryCode: row.country_code,
+    countryName: row.country_name,
+    cityName: row.city_name,
+    description: row.description,
+    date: formatDateOnly(row.trip_date),
+    peopleLimit: Number(row.people_limit),
+    restrictions: row.restrictions,
+    cost: row.cost,
+    note: row.note || "",
+    status: row.status,
+    createdAt: row.created_at ? new Date(row.created_at).toISOString() : "",
+    updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : "",
+  };
+}
+
+function formatDateOnly(value) {
+  if (value instanceof Date) {
+    return value.toISOString().slice(0, 10);
+  }
+
+  return String(value).slice(0, 10);
+}
+
+function writeTripsFile(trips) {
   mkdirSync(dirname(TRIPS_DATA_FILE), { recursive: true });
   writeFileSync(TRIPS_DATA_FILE, JSON.stringify(trips, null, 2), "utf8");
 }
@@ -625,7 +870,8 @@ function getAllowedOrigin(origin) {
   }
 
   const configuredOrigins = new Set(
-    (process.env.CORS_ORIGIN || "https://astananazchurch-astana.github.io")
+    (process.env.CORS_ORIGIN ||
+      "https://nazarene-church-kz.vercel.app,https://astananazchurch-astana.github.io")
       .split(",")
       .map((value) => value.trim())
       .filter(Boolean),

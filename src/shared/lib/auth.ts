@@ -31,6 +31,11 @@ export type Trip = {
   createdAt?: string;
 };
 
+export type PublicTrip = Pick<
+  Trip,
+  "id" | "countryCode" | "countryName" | "cityName" | "description" | "date" | "peopleLimit" | "cost" | "status"
+>;
+
 export type CreateTripInput = {
   countryCode: string;
   cityName: string;
@@ -132,6 +137,12 @@ export async function fetchDashboardSummary() {
 
 export async function fetchTrips() {
   const response = await apiFetch<{ trips: Trip[] }>("/api/admin/trips");
+
+  return response.trips;
+}
+
+export async function fetchPublicTrips() {
+  const response = await apiFetch<{ trips: PublicTrip[] }>("/api/trips");
 
   return response.trips;
 }
