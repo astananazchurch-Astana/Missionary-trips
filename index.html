@@ -1,0 +1,619 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Миссионерские выезды 2026–2027</title>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --cream:#F5F0E8;--warm:#EDE5D0;--ink:#1C1810;--ink2:#3D3525;--muted:#8A7E68;
+  --gold:#C4933F;--gold-l:#E8C87A;--green:#4A7C59;--green-l:#D4E8DA;
+  --red:#B5432A;--red-l:#F0D8D2;--blue:#3A5F8A;--blue-l:#D2DFF0;
+  --orange:#D4732A;--orange-l:#F0E0CC;--border:#D4C8B0;
+}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{background:var(--cream);font-family:'IBM Plex Sans',sans-serif;color:var(--ink);}
+
+/* ── HEADER ── */
+.site-header{background:var(--ink);padding:36px 48px 32px;position:relative;overflow:hidden;}
+.site-header::before{content:'✦';position:absolute;right:48px;top:50%;transform:translateY(-50%);font-size:120px;color:rgba(196,147,63,0.10);line-height:1;pointer-events:none;}
+.header-row{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;}
+.header-lbl{font-size:11px;letter-spacing:3px;text-transform:uppercase;color:var(--gold);font-weight:500;margin-bottom:8px;}
+.site-header h1{font-family:'Playfair Display',serif;font-size:34px;font-weight:700;color:#fff;line-height:1.2;margin-bottom:6px;}
+.site-header p{color:var(--muted);font-size:13px;}
+.header-actions{display:flex;flex-direction:column;align-items:flex-end;gap:8px;flex-shrink:0;margin-top:4px;}
+.btn-apply{padding:10px 22px;background:var(--gold);color:#fff;border:none;border-radius:8px;font-family:'IBM Plex Sans',sans-serif;font-size:13px;font-weight:700;cursor:pointer;text-decoration:none;white-space:nowrap;transition:background 0.15s;}
+.btn-apply:hover{background:var(--orange);}
+.btn-pastor{padding:6px 14px;background:transparent;border:1px solid rgba(255,255,255,0.2);color:rgba(255,255,255,0.5);border-radius:6px;font-family:'IBM Plex Sans',sans-serif;font-size:11px;cursor:pointer;transition:all 0.15s;}
+.btn-pastor:hover{border-color:var(--gold);color:var(--gold);}
+
+/* ── STATS PUBLIC ── */
+.pub-stats{background:var(--warm);border-bottom:1px solid var(--border);padding:0 48px;display:flex;flex-wrap:wrap;}
+.pstat{padding:16px 32px 16px 0;border-right:1px solid var(--border);margin-right:32px;display:flex;align-items:baseline;gap:8px;}
+.pstat:last-child{border-right:none;margin-right:0;}
+.pstat-n{font-family:'Playfair Display',serif;font-size:26px;font-weight:700;}
+.pstat-l{font-size:12px;color:var(--muted);}
+
+/* ── FILTERS ── */
+.filters{padding:16px 48px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;border-bottom:1px solid var(--border);}
+.f-lbl{font-size:11px;color:var(--muted);font-weight:600;letter-spacing:1px;text-transform:uppercase;margin-right:4px;}
+.fbtn{padding:5px 13px;border:1px solid var(--border);background:transparent;border-radius:20px;font-family:'IBM Plex Sans',sans-serif;font-size:12px;color:var(--ink2);cursor:pointer;transition:all 0.15s;}
+.fbtn:hover,.fbtn.active{background:var(--ink);color:#fff;border-color:var(--ink);}
+
+/* ── TRIPS GRID ── */
+.trips-grid{padding:32px 48px;display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:20px;}
+
+/* ── TRIP CARD ── */
+.tcard{background:#fff;border:1px solid var(--border);border-radius:12px;overflow:hidden;display:flex;flex-direction:column;}
+.tcard-accent{height:4px;}
+.tcard-body{padding:22px 24px 0;flex:1;}
+.tcard-footer{padding:16px 24px 20px;}
+.srow{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;}
+.sbadge{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:600;letter-spacing:0.5px;text-transform:uppercase;padding:3px 10px;border-radius:20px;}
+.sbadge::before{content:'';width:6px;height:6px;border-radius:50%;display:block;}
+.s-planned{background:var(--blue-l);color:var(--blue);}.s-planned::before{background:var(--blue);}
+.s-confirmed{background:var(--green-l);color:var(--green);}.s-confirmed::before{background:var(--green);}
+.s-done{background:var(--warm);color:var(--muted);}.s-done::before{background:var(--muted);}
+.s-cancelled{background:var(--red-l);color:var(--red);}.s-cancelled::before{background:var(--red);}
+.s-prayer{background:var(--orange-l);color:var(--orange);}.s-prayer::before{background:var(--orange);}
+.tnum{font-size:12px;color:var(--muted);}
+.tcity{font-family:'Playfair Display',serif;font-size:22px;font-weight:700;margin-bottom:3px;line-height:1.2;}
+.tcountry{font-size:13px;color:var(--muted);margin-bottom:14px;}
+.tdesc{font-size:13px;color:var(--ink2);line-height:1.65;margin-bottom:16px;font-weight:300;}
+.tmeta{display:grid;grid-template-columns:1fr 1fr;gap:10px;border-top:1px solid var(--warm);padding-top:14px;margin-bottom:14px;}
+.tmeta-i{display:flex;flex-direction:column;gap:2px;}
+.tmeta-k{font-size:10px;letter-spacing:1px;text-transform:uppercase;color:var(--muted);font-weight:500;}
+.tmeta-v{font-size:13px;color:var(--ink);font-weight:500;}
+.tmeta-v.mt{color:var(--muted);font-style:italic;font-weight:300;}
+.tnotes{padding:9px 11px;background:var(--cream);border-radius:6px;font-size:12px;color:var(--ink2);line-height:1.5;border-left:3px solid var(--gold-l);margin-bottom:14px;}
+.tnotes strong{color:var(--muted);text-transform:uppercase;font-size:10px;letter-spacing:1px;display:block;margin-bottom:2px;}
+
+/* participants chips on card */
+.tpeople{margin-bottom:12px;}
+.tpeople-lbl{font-size:10px;letter-spacing:1px;text-transform:uppercase;color:var(--muted);font-weight:500;margin-bottom:6px;}
+.chips{display:flex;flex-wrap:wrap;gap:5px;}
+.chip{font-size:11px;padding:3px 9px;background:var(--green-l);color:var(--green);border-radius:12px;font-weight:500;}
+.chip-empty{font-size:12px;color:var(--muted);font-style:italic;}
+
+/* apply button on card */
+.btn-card-apply{width:100%;padding:10px;background:var(--gold);color:#fff;border:none;border-radius:8px;font-family:'IBM Plex Sans',sans-serif;font-size:13px;font-weight:700;cursor:pointer;transition:background 0.15s;}
+.btn-card-apply:hover{background:var(--orange);}
+
+/* ── WHO GOES TABLE ── */
+.who-section{padding:0 48px 48px;}
+.who-head{display:flex;align-items:center;justify-content:space-between;padding:28px 0 18px;border-top:2px solid var(--border);}
+.who-head h2{font-family:'Playfair Display',serif;font-size:22px;font-weight:700;}
+.who-badge{font-size:12px;background:var(--green-l);color:var(--green);padding:4px 12px;border-radius:12px;font-weight:600;}
+.who-table{width:100%;border-collapse:collapse;background:#fff;border-radius:10px;overflow:hidden;border:1px solid var(--border);}
+.who-table th{background:var(--warm);font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--muted);font-weight:600;padding:11px 16px;text-align:left;border-bottom:1px solid var(--border);}
+.who-table td{padding:11px 16px;font-size:13px;border-bottom:1px solid var(--warm);vertical-align:middle;}
+.who-table tr:last-child td{border-bottom:none;}
+.who-table tr:hover td{background:#fafaf7;}
+.dtag{display:inline-block;font-size:11px;background:var(--blue-l);color:var(--blue);padding:2px 8px;border-radius:10px;font-weight:500;margin:2px 2px 2px 0;}
+.who-empty{padding:32px;text-align:center;color:var(--muted);font-size:14px;background:#fff;border-radius:10px;border:1px solid var(--border);line-height:1.8;}
+
+/* ── PASTOR PANEL ── */
+.pastor-panel{display:none;background:var(--ink);border-top:3px solid var(--gold);}
+.pastor-panel.open{display:block;}
+.pp-header{display:flex;align-items:center;justify-content:space-between;padding:20px 48px;border-bottom:1px solid rgba(255,255,255,0.1);}
+.pp-header h3{font-family:'Playfair Display',serif;font-size:20px;font-weight:700;color:#fff;}
+.pp-header span{font-size:12px;color:var(--muted);}
+.pp-close{padding:6px 14px;background:transparent;border:1px solid rgba(255,255,255,0.2);color:rgba(255,255,255,0.6);border-radius:6px;font-family:'IBM Plex Sans',sans-serif;font-size:12px;cursor:pointer;}
+
+/* pastor stats */
+.pp-stats{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:1px;background:rgba(255,255,255,0.05);border-bottom:1px solid rgba(255,255,255,0.08);}
+.pp-stat{padding:20px 24px;background:var(--ink);}
+.pp-stat-n{font-family:'Playfair Display',serif;font-size:32px;font-weight:700;color:#fff;margin-bottom:4px;}
+.pp-stat-l{font-size:12px;color:var(--muted);}
+.pp-stat-sub{font-size:11px;color:var(--gold);margin-top:2px;}
+
+/* pastor tabs */
+.pp-tabs{display:flex;border-bottom:1px solid rgba(255,255,255,0.1);padding:0 48px;}
+.pp-tab{padding:14px 20px;font-family:'IBM Plex Sans',sans-serif;font-size:13px;font-weight:500;color:rgba(255,255,255,0.4);border:none;background:transparent;cursor:pointer;border-bottom:2px solid transparent;transition:all 0.15s;}
+.pp-tab.active{color:#fff;border-bottom-color:var(--gold);}
+.pp-content{padding:28px 48px 40px;}
+.pp-page{display:none;}.pp-page.active{display:block;}
+
+/* applications table */
+.app-table{width:100%;border-collapse:collapse;border-radius:10px;overflow:hidden;}
+.app-table th{background:rgba(255,255,255,0.06);font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--muted);font-weight:600;padding:10px 14px;text-align:left;}
+.app-table td{padding:11px 14px;font-size:13px;border-bottom:1px solid rgba(255,255,255,0.06);color:rgba(255,255,255,0.85);vertical-align:middle;}
+.app-table tr:last-child td{border-bottom:none;}
+.app-table tr:hover td{background:rgba(255,255,255,0.03);}
+.cs{display:inline-block;font-size:10px;font-weight:700;padding:2px 8px;border-radius:8px;}
+.cs-new{background:#fff3cd;color:#856404;}
+.cs-review{background:var(--orange-l);color:var(--orange);}
+.cs-approved{background:var(--green-l);color:var(--green);}
+.cs-declined{background:var(--red-l);color:var(--red);}
+.act-btn{padding:4px 10px;border-radius:5px;font-family:'IBM Plex Sans',sans-serif;font-size:11px;font-weight:600;cursor:pointer;border:none;margin:0 2px;}
+.act-approve{background:var(--green-l);color:var(--green);}
+.act-decline{background:var(--red-l);color:var(--red);}
+.act-edit{background:rgba(255,255,255,0.1);color:rgba(255,255,255,0.7);}
+
+/* edit trip inline */
+.edit-trip-list{display:grid;gap:12px;}
+.etrip{background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.1);border-radius:8px;padding:16px 20px;display:flex;align-items:center;gap:16px;cursor:pointer;transition:background 0.15s;}
+.etrip:hover{background:rgba(255,255,255,0.08);}
+.etrip-city{font-family:'Playfair Display',serif;font-size:17px;font-weight:700;color:#fff;flex:1;}
+.etrip-dates{font-size:12px;color:var(--muted);}
+.etrip-cnt{font-size:12px;color:var(--green-l);}
+.etrip-edit{padding:5px 12px;background:var(--gold);color:#fff;border:none;border-radius:5px;font-family:'IBM Plex Sans',sans-serif;font-size:12px;font-weight:600;cursor:pointer;}
+
+/* loading / error */
+.loading-msg{padding:40px;text-align:center;color:var(--muted);font-size:14px;}
+.error-msg{padding:20px 48px;background:var(--red-l);color:var(--red);font-size:13px;display:none;}
+.error-msg.show{display:block;}
+
+/* MODAL */
+.overlay{display:none;position:fixed;inset:0;background:rgba(28,24,16,0.6);z-index:200;align-items:center;justify-content:center;padding:24px;}
+.overlay.open{display:flex;}
+.modal{background:#fff;border-radius:12px;width:100%;max-width:560px;max-height:90vh;overflow-y:auto;box-shadow:0 24px 64px rgba(28,24,16,0.3);}
+.mhead{padding:22px 26px 18px;border-bottom:1px solid var(--warm);display:flex;justify-content:space-between;align-items:center;}
+.mhead h2{font-family:'Playfair Display',serif;font-size:19px;font-weight:700;}
+.mclose{width:30px;height:30px;background:var(--warm);border:none;border-radius:6px;cursor:pointer;font-size:15px;color:var(--ink2);display:flex;align-items:center;justify-content:center;}
+.mbody{padding:22px 26px 10px;}
+.mfoot{padding:10px 26px 22px;display:flex;gap:10px;justify-content:flex-end;}
+.fg{margin-bottom:16px;}
+.fg label{display:block;font-size:11px;font-weight:600;letter-spacing:1px;text-transform:uppercase;color:var(--muted);margin-bottom:5px;}
+.fg input,.fg select,.fg textarea{width:100%;padding:9px 13px;border:1px solid var(--border);border-radius:6px;font-family:'IBM Plex Sans',sans-serif;font-size:14px;color:var(--ink);background:var(--cream);outline:none;transition:border-color 0.15s;}
+.fg input:focus,.fg select:focus,.fg textarea:focus{border-color:var(--gold);background:#fff;}
+.fg textarea{resize:vertical;min-height:70px;}
+.fg-row{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
+.btn-cancel{padding:8px 18px;background:var(--warm);border:none;border-radius:6px;font-family:'IBM Plex Sans',sans-serif;font-size:13px;font-weight:500;cursor:pointer;color:var(--ink2);}
+.btn-save{padding:8px 22px;background:var(--gold);border:none;border-radius:6px;font-family:'IBM Plex Sans',sans-serif;font-size:13px;font-weight:600;cursor:pointer;color:#fff;}
+.btn-save:hover{background:var(--orange);}
+.btn-del{padding:8px 14px;background:var(--red-l);border:none;border-radius:6px;font-family:'IBM Plex Sans',sans-serif;font-size:13px;cursor:pointer;color:var(--red);margin-right:auto;}
+
+/* login modal */
+.login-box{max-width:360px;}
+.login-note{font-size:12px;color:var(--muted);margin-top:6px;}
+</style>
+</head>
+<body>
+
+<!-- ═══ HEADER ═══ -->
+<div class="site-header">
+  <div class="header-row">
+    <div>
+      <div class="header-lbl">Планирование</div>
+      <h1>Миссионерские выезды<br>2026–2027</h1>
+      <p>Узнай о поездках и запишись в команду</p>
+    </div>
+    <div class="header-actions">
+      <a href="form.html" class="btn-apply">📝 Записаться в команду</a>
+      <button class="btn-pastor" onclick="openLogin()">Вход для пастора</button>
+    </div>
+  </div>
+</div>
+
+<div class="error-msg" id="errMsg">⚠️ Не удалось загрузить данные. Проверь настройки SCRIPT_URL в файле.</div>
+
+<!-- ═══ PUBLIC STATS ═══ -->
+<div class="pub-stats">
+  <div class="pstat"><span class="pstat-n" id="sTotal">—</span><span class="pstat-l">выездов</span></div>
+  <div class="pstat"><span class="pstat-n" id="sPlanned">—</span><span class="pstat-l">планируется</span></div>
+  <div class="pstat"><span class="pstat-n" id="sPartic">—</span><span class="pstat-l">участников</span></div>
+  <div class="pstat"><span class="pstat-n" id="sCountries">—</span><span class="pstat-l">стран</span></div>
+</div>
+
+<!-- ═══ FILTERS ═══ -->
+<div class="filters">
+  <span class="f-lbl">Фильтр:</span>
+  <button class="fbtn active" onclick="setFilter('all',this)">Все</button>
+  <button class="fbtn" onclick="setFilter('planned',this)">Планируется</button>
+  <button class="fbtn" onclick="setFilter('confirmed',this)">Подтверждено</button>
+  <button class="fbtn" onclick="setFilter('prayer',this)">Нужна молитва</button>
+</div>
+
+<!-- ═══ TRIPS ═══ -->
+<div class="trips-grid" id="tripsGrid">
+  <div class="loading-msg">Загрузка выездов…</div>
+</div>
+
+<!-- ═══ WHO GOES ═══ -->
+<div class="who-section">
+  <div class="who-head">
+    <h2>Кто и куда едет</h2>
+    <span class="who-badge" id="whoBadge">0 участников</span>
+  </div>
+  <div id="whoBlock"><div class="who-empty">Пока никто не записался.<br>Будь первым! <a href="form.html" style="color:var(--gold);font-weight:600;">Заполнить анкету →</a></div></div>
+</div>
+
+<!-- ═══ PASTOR PANEL ═══ -->
+<div class="pastor-panel" id="pastorPanel">
+  <div class="pp-header">
+    <div>
+      <h3>Панель пастора</h3>
+      <span>Полная информация о проекте</span>
+    </div>
+    <button class="pp-close" onclick="closePastor()">✕ Закрыть</button>
+  </div>
+
+  <div class="pp-stats" id="ppStats">
+    <div class="pp-stat"><div class="pp-stat-n" id="ppTotal">—</div><div class="pp-stat-l">Всего выездов</div></div>
+    <div class="pp-stat"><div class="pp-stat-n" id="ppNew">—</div><div class="pp-stat-l">Новых заявок</div><div class="pp-stat-sub">требуют внимания</div></div>
+    <div class="pp-stat"><div class="pp-stat-n" id="ppApproved">—</div><div class="pp-stat-l">Принято</div></div>
+    <div class="pp-stat"><div class="pp-stat-n" id="ppPrayer">—</div><div class="pp-stat-l">Нужна молитва</div></div>
+    <div class="pp-stat"><div class="pp-stat-n" id="ppPopular">—</div><div class="pp-stat-l">Топ выезд</div><div class="pp-stat-sub" id="ppPopularSub"></div></div>
+  </div>
+
+  <div class="pp-tabs">
+    <button class="pp-tab active" onclick="ppTab('apps',this)">📋 Заявки</button>
+    <button class="pp-tab" onclick="ppTab('trips',this)">✏️ Редактировать выезды</button>
+  </div>
+
+  <div class="pp-content">
+    <!-- Applications -->
+    <div class="pp-page active" id="pp-apps">
+      <div id="appsContent"><div class="loading-msg" style="color:var(--muted)">Загрузка заявок…</div></div>
+    </div>
+    <!-- Edit trips -->
+    <div class="pp-page" id="pp-trips">
+      <div style="margin-bottom:16px;">
+        <button onclick="openTripModal()" style="padding:8px 20px;background:var(--gold);color:#fff;border:none;border-radius:6px;font-family:'IBM Plex Sans',sans-serif;font-size:13px;font-weight:600;cursor:pointer;">+ Новый выезд</button>
+      </div>
+      <div class="edit-trip-list" id="editTripList"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ TRIP EDIT MODAL ═══ -->
+<div class="overlay" id="tripModal">
+  <div class="modal">
+    <div class="mhead"><h2 id="tripModalTitle">Новый выезд</h2><button class="mclose" onclick="closeTripModal()">✕</button></div>
+    <div class="mbody">
+      <div class="fg-row">
+        <div class="fg"><label>Город</label><input type="text" id="mCity"></div>
+        <div class="fg"><label>Страна</label><input type="text" id="mCountry"></div>
+      </div>
+      <div class="fg"><label>Описание</label><textarea id="mDesc" rows="3"></textarea></div>
+      <div class="fg"><label>Даты</label><input type="text" id="mDates" placeholder="17–21 августа / Осень 2026"></div>
+      <div class="fg-row">
+        <div class="fg"><label>Кол-во людей</label><input type="text" id="mPeople" placeholder="4–6 чел"></div>
+        <div class="fg"><label>Стоимость</label><input type="text" id="mCost"></div>
+      </div>
+      <div class="fg">
+        <label>Статус</label>
+        <select id="mStatus">
+          <option value="prayer">Нужна молитва</option>
+          <option value="planned">Планируется</option>
+          <option value="confirmed">Подтверждено</option>
+          <option value="done">Завершено</option>
+          <option value="cancelled">Отменено</option>
+        </select>
+      </div>
+      <div class="fg"><label>Примечания</label><textarea id="mNotes" rows="2"></textarea></div>
+    </div>
+    <div class="mfoot">
+      <button class="btn-del" id="btnDelTrip" onclick="deleteTrip()" style="display:none">Удалить</button>
+      <button class="btn-cancel" onclick="closeTripModal()">Отмена</button>
+      <button class="btn-save" onclick="saveTrip()">Сохранить</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ CANDIDATE DETAIL MODAL ═══ -->
+<div class="overlay" id="candModal">
+  <div class="modal">
+    <div class="mhead"><h2 id="candModalTitle">Заявка</h2><button class="mclose" onclick="closeCandModal()">✕</button></div>
+    <div class="mbody" id="candModalBody"></div>
+    <div class="mfoot">
+      <button class="btn-del" onclick="updateCandStatus(editCandId,'declined');closeCandModal();" style="background:var(--red-l);color:var(--red)">Отклонить</button>
+      <button class="btn-cancel" onclick="closeCandModal()">Закрыть</button>
+      <button class="btn-save" style="background:var(--green)" onclick="updateCandStatus(editCandId,'approved');closeCandModal();">✓ Принять</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ LOGIN MODAL ═══ -->
+<div class="overlay" id="loginModal">
+  <div class="modal login-box">
+    <div class="mhead"><h2>Вход</h2><button class="mclose" onclick="closeLogin()">✕</button></div>
+    <div class="mbody">
+      <div class="fg"><label>Пароль</label><input type="password" id="loginPwd" placeholder="Введи пароль" onkeydown="if(event.key==='Enter')doLogin()"></div>
+      <div class="login-note">Только для администратора проекта</div>
+    </div>
+    <div class="mfoot">
+      <button class="btn-cancel" onclick="closeLogin()">Отмена</button>
+      <button class="btn-save" onclick="doLogin()">Войти</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ══════════════════════════════════════════
+//  НАСТРОЙКИ — замени на свои значения
+// ══════════════════════════════════════════
+const SCRIPT_URL = ''; // сюда вставь URL Google Apps Script
+const ADMIN_PASSWORD = 'pastor2026'; // смени пароль!
+// ══════════════════════════════════════════
+
+const SM = {
+  planned:  {label:'Планируется',  cls:'s-planned',  accent:'#3A5F8A'},
+  confirmed:{label:'Подтверждено', cls:'s-confirmed',accent:'#4A7C59'},
+  done:     {label:'Завершено',    cls:'s-done',     accent:'#8A7E68'},
+  cancelled:{label:'Отменено',     cls:'s-cancelled',accent:'#B5432A'},
+  prayer:   {label:'Нужна молитва',cls:'s-prayer',   accent:'#C4933F'},
+};
+const CS_LBL={new:'Новая заявка',review:'На рассмотрении',approved:'Принят',declined:'Отклонён'};
+const CS_CLS={new:'cs-new',review:'cs-review',approved:'cs-approved',declined:'cs-declined'};
+
+let trips=[], candidates=[], curFilter='all', editTripId=null, editCandId=null, isPastor=false;
+
+// ── DATA ──
+async function fetchData(){
+  if(!SCRIPT_URL){
+    // Demo mode — use built-in data
+    trips = [
+      {id:1,city:'Актобе',country:'Казахстан',desc:'Пока не ответили.',dates:'',people:'',cost:'',status:'prayer',notes:''},
+      {id:2,city:'Новобратск',country:'Россия',desc:'В следующем году планируем поездку. Пастор Оксана посещает — поддержите в молитве, чтобы были значимые отношения и открытые люди.',dates:'',people:'',cost:'',status:'prayer',notes:''},
+      {id:3,city:'Степногорск',country:'Казахстан',desc:'Нужен ремонт санузла в церкви, кухня, замена труб, уборка двора, косметический ремонт, обновление двери, вывоз старых батарей.',dates:'Июнь или по договорённости',people:'',cost:'',status:'planned',notes:''},
+      {id:4,city:'Каракол',country:'Кыргызстан',desc:'Молимся и хотим сделать поездку в следующем году.',dates:'',people:'',cost:'',status:'prayer',notes:''},
+      {id:5,city:'Костанай',country:'Казахстан',desc:'Нужна физическая помощь, чтобы открыть языковой корейский центр. В следующем году нужна духовная помощь.',dates:'Осень 2026',people:'',cost:'',status:'planned',notes:''},
+      {id:6,city:'Тараз',country:'Казахстан',desc:'Местная церковь: помощь по хозяйству, ремонту, строительству. Также детский лагерь.',dates:'Гибкие',people:'',cost:'',status:'planned',notes:''},
+      {id:7,city:'Минск',country:'Беларусь',desc:'Нужны служители для библейского лагеря.',dates:'17–21 августа',people:'Небольшая команда',cost:'',status:'planned',notes:'Нужно приехать раньше — помочь с подготовкой и украшением.'},
+      {id:8,city:'Армения',country:'Армения',desc:'Детский лагерь.',dates:'12–31 июля',people:'3–4 чел',cost:'',status:'planned',notes:'Если есть кандидаты с призывом — свяжитесь с пастором Сергеем.'},
+      {id:9,city:'Костанай',country:'Казахстан',desc:'Миссионерский тренинг на 2 дня — Эстебан с командой проведут для нашего округа.',dates:'Октябрь 2026',people:'10–15 чел',cost:'',status:'planned',notes:'Предварительно.'},
+      {id:10,city:'Волгоград',country:'Россия',desc:'Участие в детском, подростковом и молодёжном служении. Помощь по благоустройству двора и здания церкви.',dates:'13–17 июля (дет.); 12–16 авг. (подр.)',people:'4–6 чел',cost:'',status:'planned',notes:'Есть размещение для 4–6 человек. Возможна синхронизация с поездкой в Красноярск и Уссурийск.'},
+    ];
+    candidates = [
+      {id:1,name:'Наталья Меркушина',city:'Степногорск',contact:'',destinations:[3],skills:'',days:'',extra:'',status:'approved'},
+    ];
+    render(); return;
+  }
+  try{
+    const res = await fetch(SCRIPT_URL+'?action=getAll');
+    const d = await res.json();
+    trips = d.trips||[];
+    candidates = d.candidates||[];
+    render();
+  } catch(e){
+    document.getElementById('errMsg').classList.add('show');
+    console.error(e);
+  }
+}
+
+async function apiPost(payload){
+  if(!SCRIPT_URL) return {ok:true};
+  const res=await fetch(SCRIPT_URL,{method:'POST',body:JSON.stringify(payload)});
+  return res.json();
+}
+
+// ── RENDER ──
+function render(){
+  renderTrips();
+  renderWhoGoes();
+  renderPublicStats();
+  if(isPastor){ renderPastorStats(); renderApps(); renderEditList(); }
+}
+
+function setFilter(f,btn){
+  curFilter=f;
+  document.querySelectorAll('.fbtn').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+  renderTrips();
+}
+
+function getApprovedForTrip(tid){
+  return candidates.filter(c=>c.status==='approved'&&Array.isArray(c.destinations)&&c.destinations.includes(tid));
+}
+
+function renderTrips(){
+  const grid=document.getElementById('tripsGrid');
+  const list=curFilter==='all'?trips:trips.filter(t=>t.status===curFilter);
+  if(!list.length){grid.innerHTML='<div class="loading-msg">Нет поездок по выбранному фильтру</div>';return;}
+  grid.innerHTML=list.map(t=>{
+    const s=SM[t.status]||SM.planned;
+    const parts=getApprovedForTrip(t.id);
+    const chipsHtml=parts.length
+      ?`<div class="tpeople"><div class="tpeople-lbl">Команда (${parts.length})</div><div class="chips">${parts.map(p=>`<span class="chip">${p.name}</span>`).join('')}</div></div>`
+      :`<div class="tpeople"><div class="chips"><span class="chip-empty">Пока никто не записался</span></div></div>`;
+    return `<div class="tcard">
+      <div class="tcard-accent" style="background:${s.accent}"></div>
+      <div class="tcard-body">
+        <div class="srow"><span class="sbadge ${s.cls}">${s.label}</span><span class="tnum">#${String(t.id).padStart(2,'0')}</span></div>
+        <div class="tcity">${t.city}</div>
+        <div class="tcountry">${t.country||'—'}</div>
+        ${t.desc?`<div class="tdesc">${t.desc}</div>`:''}
+        <div class="tmeta">
+          <div class="tmeta-i"><span class="tmeta-k">Даты</span><span class="tmeta-v ${!t.dates?'mt':''}">${t.dates||'Уточняется'}</span></div>
+          <div class="tmeta-i"><span class="tmeta-k">Людей</span><span class="tmeta-v ${!t.people?'mt':''}">${t.people||'Уточняется'}</span></div>
+        </div>
+        ${t.notes?`<div class="tnotes"><strong>Примечание</strong>${t.notes}</div>`:''}
+        ${chipsHtml}
+      </div>
+      <div class="tcard-footer">
+        <button class="btn-card-apply" onclick="window.location='form.html?trip=${t.id}'">Хочу поехать →</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function renderWhoGoes(){
+  const approved=candidates.filter(c=>c.status==='approved'&&Array.isArray(c.destinations)&&c.destinations.length>0);
+  document.getElementById('whoBadge').textContent=approved.length+' участников';
+  const block=document.getElementById('whoBlock');
+  if(!approved.length){
+    block.innerHTML='<div class="who-empty">Пока никто не записался.<br>Будь первым! <a href="form.html" style="color:var(--gold);font-weight:600;">Заполнить анкету →</a></div>';
+    return;
+  }
+  block.innerHTML=`<table class="who-table">
+    <thead><tr><th>#</th><th>Имя</th><th>Откуда</th><th>Едет в</th></tr></thead>
+    <tbody>${approved.map((c,i)=>{
+      const dests=(c.destinations||[]).map(did=>{const t=trips.find(x=>x.id==did);return t?`<span class="dtag">${t.city}</span>`:''}).join('');
+      return `<tr><td>${i+1}</td><td><strong>${c.name}</strong></td><td>${c.city||'—'}</td><td>${dests||'—'}</td></tr>`;
+    }).join('')}</tbody></table>`;
+}
+
+function renderPublicStats(){
+  document.getElementById('sTotal').textContent=trips.length;
+  document.getElementById('sPlanned').textContent=trips.filter(t=>t.status==='planned'||t.status==='confirmed').length;
+  document.getElementById('sPartic').textContent=candidates.filter(c=>c.status==='approved').length;
+  const countries=new Set(trips.map(t=>t.country).filter(Boolean));
+  document.getElementById('sCountries').textContent=countries.size;
+}
+
+// ── PASTOR ──
+function openLogin(){document.getElementById('loginModal').classList.add('open');setTimeout(()=>document.getElementById('loginPwd').focus(),100);}
+function closeLogin(){document.getElementById('loginModal').classList.remove('open');}
+function doLogin(){
+  const pwd=document.getElementById('loginPwd').value;
+  if(pwd===ADMIN_PASSWORD){
+    isPastor=true;closeLogin();
+    document.getElementById('loginPwd').value='';
+    document.getElementById('pastorPanel').classList.add('open');
+    document.getElementById('pastorPanel').scrollIntoView({behavior:'smooth'});
+    renderPastorStats();renderApps();renderEditList();
+  } else { alert('Неверный пароль'); }
+}
+function closePastor(){document.getElementById('pastorPanel').classList.remove('open');isPastor=false;}
+
+function ppTab(id,btn){
+  document.querySelectorAll('.pp-tab').forEach(b=>b.classList.remove('active'));
+  document.querySelectorAll('.pp-page').forEach(p=>p.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById('pp-'+id).classList.add('active');
+}
+
+function renderPastorStats(){
+  document.getElementById('ppTotal').textContent=trips.length;
+  const newC=candidates.filter(c=>c.status==='new').length;
+  document.getElementById('ppNew').textContent=newC;
+  document.getElementById('ppApproved').textContent=candidates.filter(c=>c.status==='approved').length;
+  document.getElementById('ppPrayer').textContent=trips.filter(t=>t.status==='prayer').length;
+  // top trip by participants
+  let top=null,topCount=0;
+  trips.forEach(t=>{const cnt=getApprovedForTrip(t.id).length;if(cnt>topCount){topCount=cnt;top=t;}});
+  document.getElementById('ppPopular').textContent=topCount||0;
+  document.getElementById('ppPopularSub').textContent=top?top.city:'нет данных';
+}
+
+function renderApps(){
+  const apps=candidates;
+  const el=document.getElementById('appsContent');
+  if(!apps.length){el.innerHTML='<div style="color:var(--muted);padding:20px 0">Заявок пока нет</div>';return;}
+  el.innerHTML=`<table class="app-table">
+    <thead><tr><th>Статус</th><th>Имя</th><th>Откуда</th><th>Контакт</th><th>Выезды</th><th>Действие</th></tr></thead>
+    <tbody>${apps.map(c=>{
+      const dests=(c.destinations||[]).map(did=>{const t=trips.find(x=>x.id==did);return t?t.city:''}).filter(Boolean).join(', ');
+      return `<tr>
+        <td><span class="cs ${CS_CLS[c.status]||'cs-new'}">${CS_LBL[c.status]||'?'}</span></td>
+        <td><strong>${c.name}</strong></td>
+        <td>${c.city||'—'}</td>
+        <td>${c.contact||'—'}</td>
+        <td>${dests||'—'}</td>
+        <td>
+          <button class="act-btn act-edit" onclick="openCandModal(${c.id})">📄</button>
+          ${c.status!=='approved'?`<button class="act-btn act-approve" onclick="updateCandStatus(${c.id},'approved')">✓</button>`:''}
+          ${c.status!=='declined'?`<button class="act-btn act-decline" onclick="updateCandStatus(${c.id},'declined')">✕</button>`:''}
+        </td></tr>`;
+    }).join('')}</tbody></table>`;
+}
+
+function renderEditList(){
+  const el=document.getElementById('editTripList');
+  el.innerHTML=trips.map(t=>{
+    const cnt=getApprovedForTrip(t.id).length;
+    return `<div class="etrip">
+      <div style="flex:1">
+        <div class="etrip-city">${t.city}, ${t.country}</div>
+        <div style="display:flex;gap:16px;margin-top:4px">
+          <span class="etrip-dates">${t.dates||'Даты не указаны'}</span>
+          <span class="etrip-cnt">👥 ${cnt} участников</span>
+        </div>
+      </div>
+      <button class="etrip-edit" onclick="openTripModal(${t.id})">Изменить</button>
+    </div>`;
+  }).join('');
+}
+
+// ── TRIP MODAL ──
+function openTripModal(id=null){
+  editTripId=id;
+  if(id){
+    const t=trips.find(x=>x.id===id);
+    document.getElementById('tripModalTitle').textContent=t.city+' — редактировать';
+    document.getElementById('mCity').value=t.city;
+    document.getElementById('mCountry').value=t.country;
+    document.getElementById('mDesc').value=t.desc;
+    document.getElementById('mDates').value=t.dates;
+    document.getElementById('mPeople').value=t.people;
+    document.getElementById('mCost').value=t.cost;
+    document.getElementById('mStatus').value=t.status;
+    document.getElementById('mNotes').value=t.notes;
+    document.getElementById('btnDelTrip').style.display='block';
+  } else {
+    document.getElementById('tripModalTitle').textContent='Новый выезд';
+    ['mCity','mCountry','mDesc','mDates','mPeople','mCost','mNotes'].forEach(i=>document.getElementById(i).value='');
+    document.getElementById('mStatus').value='planned';
+    document.getElementById('btnDelTrip').style.display='none';
+  }
+  document.getElementById('tripModal').classList.add('open');
+}
+function closeTripModal(){document.getElementById('tripModal').classList.remove('open');editTripId=null;}
+async function saveTrip(){
+  const d={city:document.getElementById('mCity').value.trim()||'Новый выезд',country:document.getElementById('mCountry').value.trim(),desc:document.getElementById('mDesc').value.trim(),dates:document.getElementById('mDates').value.trim(),people:document.getElementById('mPeople').value.trim(),cost:document.getElementById('mCost').value.trim(),status:document.getElementById('mStatus').value,notes:document.getElementById('mNotes').value.trim()};
+  if(editTripId){
+    const i=trips.findIndex(t=>t.id===editTripId);
+    trips[i]={...trips[i],...d};
+    await apiPost({action:'updateTrip',trip:trips[i]});
+  } else {
+    const nid=trips.length?Math.max(...trips.map(t=>t.id))+1:1;
+    const nt={id:nid,...d};
+    trips.push(nt);
+    await apiPost({action:'addTrip',trip:nt});
+  }
+  closeTripModal();render();
+}
+async function deleteTrip(){
+  if(!editTripId)return;
+  await apiPost({action:'deleteTrip',id:editTripId});
+  trips=trips.filter(t=>t.id!==editTripId);
+  closeTripModal();render();
+}
+
+// ── CANDIDATE MODAL ──
+function openCandModal(id){
+  editCandId=id;
+  const c=candidates.find(x=>x.id===id);
+  document.getElementById('candModalTitle').textContent=c.name;
+  const dests=(c.destinations||[]).map(did=>{const t=trips.find(x=>x.id==did);return t?`${t.city}, ${t.country}`:''}).filter(Boolean).join('<br>');
+  document.getElementById('candModalBody').innerHTML=`
+    <div style="display:grid;gap:12px">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <div><div style="font-size:10px;letter-spacing:1px;text-transform:uppercase;color:var(--muted);margin-bottom:3px">Город</div><div style="font-size:14px;font-weight:500">${c.city||'—'}</div></div>
+        <div><div style="font-size:10px;letter-spacing:1px;text-transform:uppercase;color:var(--muted);margin-bottom:3px">Контакт</div><div style="font-size:14px;font-weight:500">${c.contact||'—'}</div></div>
+      </div>
+      <div><div style="font-size:10px;letter-spacing:1px;text-transform:uppercase;color:var(--muted);margin-bottom:3px">Выезды</div><div style="font-size:14px">${dests||'—'}</div></div>
+      ${c.skills?`<div><div style="font-size:10px;letter-spacing:1px;text-transform:uppercase;color:var(--muted);margin-bottom:3px">Навыки</div><div style="font-size:14px">${c.skills}</div></div>`:''}
+      ${c.days?`<div><div style="font-size:10px;letter-spacing:1px;text-transform:uppercase;color:var(--muted);margin-bottom:3px">Дней готов</div><div style="font-size:14px">${c.days}</div></div>`:''}
+      ${c.extra?`<div style="padding:10px 12px;background:var(--cream);border-radius:6px;border-left:3px solid var(--gold-l);font-size:13px">${c.extra}</div>`:''}
+      <div style="display:flex;align-items:center;justify-content:space-between">
+        <span>Текущий статус:</span><span class="cs ${CS_CLS[c.status]||'cs-new'}">${CS_LBL[c.status]||'?'}</span>
+      </div>
+    </div>`;
+  document.getElementById('candModal').classList.add('open');
+}
+function closeCandModal(){document.getElementById('candModal').classList.remove('open');editCandId=null;}
+
+async function updateCandStatus(id,status){
+  const i=candidates.findIndex(c=>c.id===id);
+  if(i<0)return;
+  candidates[i].status=status;
+  await apiPost({action:'updateCandidateStatus',id,status});
+  render();
+}
+
+// close on overlay
+['tripModal','candModal','loginModal'].forEach(id=>{
+  document.getElementById(id).addEventListener('click',function(e){if(e.target===this)this.classList.remove('open');});
+});
+
+// ── INIT ──
+fetchData();
+// refresh every 30 sec
+setInterval(fetchData, 30000);
+</script>
+</body>
+</html>
