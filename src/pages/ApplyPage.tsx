@@ -3,12 +3,16 @@ import {
   ArrowLeft,
   ArrowRight,
   CalendarDays,
+  Eye,
+  FileText,
   HeartHandshake,
   Mail,
   MapPin,
   Phone,
+  ShieldCheck,
   UserRound,
   UsersRound,
+  X,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import {
@@ -22,6 +26,16 @@ import { Logo } from "../shared/ui/Logo";
 type ApplyPageProps = {
   homeHref: string;
   onHome: () => void;
+};
+
+type ReadConfirmations = {
+  restrictions: boolean;
+  note: boolean;
+};
+
+type TripInfoModalState = {
+  title: string;
+  content: string;
 };
 
 type ApplicationFormState = {
@@ -73,6 +87,11 @@ export function ApplyPage({ homeHref, onHome }: ApplyPageProps) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
+  const [readConfirmations, setReadConfirmations] = useState<ReadConfirmations>({
+    restrictions: false,
+    note: false,
+  });
+  const [activeInfoModal, setActiveInfoModal] = useState<TripInfoModalState | null>(null);
 
   useEffect(() => {
     let isMounted = true;
@@ -107,15 +126,52 @@ export function ApplyPage({ homeHref, onHome }: ApplyPageProps) {
     };
   }, [tripId]);
 
+  useEffect(() => {
+    setReadConfirmations({ restrictions: false, note: false });
+    setActiveInfoModal(null);
+  }, [trip?.id]);
+
+  useEffect(() => {
+    if (!activeInfoModal) {
+      return;
+    }
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setActiveInfoModal(null);
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [activeInfoModal]);
+
   const participants = trip?.participants || [];
   const isClosed = trip ? isRegistrationClosed(trip.registrationDeadline || trip.date) : false;
   const availableSpots = Math.max(Number(trip?.availableSpots ?? trip?.peopleLimit ?? 0), 0);
   const canApply = Boolean(trip && !isClosed && availableSpots > 0);
+  const tripTitle = trip ? `${trip.cityName}, ${trip.countryName}` : "Миссионерская поездка";
+  const needsRestrictionsConfirmation = Boolean(trip?.restrictions);
+  const needsNoteConfirmation = Boolean(trip?.note);
+  const hasReadRequiredInfo =
+    (!needsRestrictionsConfirmation || readConfirmations.restrictions) &&
+    (!needsNoteConfirmation || readConfirmations.note);
+  const canSubmitApplication = canApply && hasReadRequiredInfo && !isSubmitting;
 
   const updateForm = (field: keyof ApplicationFormState, value: string) => {
     setForm((currentForm) => ({
       ...currentForm,
       [field]: field === "phone" ? formatKzPhone(value) : value,
+    }));
+  };
+
+  const updateReadConfirmation = (field: keyof ReadConfirmations, value: boolean) => {
+    setReadConfirmations((currentConfirmations) => ({
+      ...currentConfirmations,
+      [field]: value,
     }));
   };
 
@@ -126,6 +182,11 @@ export function ApplyPage({ homeHref, onHome }: ApplyPageProps) {
 
     if (!trip || !canApply) {
       setError("Регистрация на эту поездку уже закрыта.");
+      return;
+    }
+
+    if (!hasReadRequiredInfo) {
+      setError("Подтвердите, что вы прочитали ограничения и примечание поездки.");
       return;
     }
 
@@ -143,6 +204,7 @@ export function ApplyPage({ homeHref, onHome }: ApplyPageProps) {
 
       setTrip((currentTrip) => addParticipantToTrip(currentTrip, participant));
       setForm(emptyForm);
+      setReadConfirmations({ restrictions: false, note: false });
       setSuccess("Заявка отправлена. Администратор увидит ваши данные в поездке.");
     } catch {
       setError("Не удалось отправить заявку. Проверьте поля и попробуйте еще раз.");
@@ -171,7 +233,7 @@ export function ApplyPage({ homeHref, onHome }: ApplyPageProps) {
             <Logo className="apply-hero__logo" />
             <div>
               <span>Заявка на поездку</span>
-              <h1>{trip ? `${trip.cityName}, ${trip.countryName}` : "Миссионерская поездка"}</h1>
+              <h1 className={getApplyTitleClassName(tripTitle)}>{tripTitle}</h1>
             </div>
           </div>
 
@@ -193,6 +255,32 @@ export function ApplyPage({ homeHref, onHome }: ApplyPageProps) {
                   value={formatDate(trip.registrationDeadline || trip.date)}
                 />
                 <TripFact icon={UsersRound} label="Нужно людей" value={`${availableSpots} из ${trip.peopleLimit}`} />
+                {trip.restrictions ? (
+                  <TripFact
+                    icon={ShieldCheck}
+                    label="Ограничения"
+                    value="Ознакомьтесь перед отправкой заявки"
+                    onView={() =>
+                      setActiveInfoModal({
+                        title: "Ограничения поездки",
+                        content: trip.restrictions || "",
+                      })
+                    }
+                  />
+                ) : null}
+                {trip.note ? (
+                  <TripFact
+                    icon={FileText}
+                    label="Примечание"
+                    value="Дополнительная информация о поездке"
+                    onView={() =>
+                      setActiveInfoModal({
+                        title: "Примечание к поездке",
+                        content: trip.note || "",
+                      })
+                    }
+                  />
+                ) : null}
               </div>
 
               <div className="apply-participants">
@@ -319,6 +407,34 @@ export function ApplyPage({ homeHref, onHome }: ApplyPageProps) {
               </div>
             </label>
 
+            {trip && (trip.restrictions || trip.note) ? (
+              <div className="apply-confirmations" aria-label="Подтверждение ознакомления">
+                {trip.restrictions ? (
+                  <label className="apply-confirmation">
+                    <input
+                      required
+                      type="checkbox"
+                      checked={readConfirmations.restrictions}
+                      onChange={(event) => updateReadConfirmation("restrictions", event.target.checked)}
+                    />
+                    <span>Я прочитал(а) ограничения поездки</span>
+                  </label>
+                ) : null}
+
+                {trip.note ? (
+                  <label className="apply-confirmation">
+                    <input
+                      required
+                      type="checkbox"
+                      checked={readConfirmations.note}
+                      onChange={(event) => updateReadConfirmation("note", event.target.checked)}
+                    />
+                    <span>Я прочитал(а) примечание к поездке</span>
+                  </label>
+                ) : null}
+              </div>
+            ) : null}
+
             {error && trip ? (
               <p className="apply-error" role="alert">
                 {error}
@@ -331,13 +447,21 @@ export function ApplyPage({ homeHref, onHome }: ApplyPageProps) {
               </p>
             ) : null}
 
-            <button className="button button--primary apply-submit" type="submit" disabled={!canApply || isSubmitting}>
+            <button className="button button--primary apply-submit" type="submit" disabled={!canSubmitApplication}>
               {isSubmitting ? "Отправляем..." : "Отправить заявку"}
               <ArrowRight size={19} aria-hidden="true" />
             </button>
           </form>
         </section>
       </div>
+
+      {activeInfoModal ? (
+        <ApplyInfoModal
+          title={activeInfoModal.title}
+          content={activeInfoModal.content}
+          onClose={() => setActiveInfoModal(null)}
+        />
+      ) : null}
     </main>
   );
 }
@@ -346,16 +470,77 @@ type TripFactProps = {
   icon: LucideIcon;
   label: string;
   value: string;
+  onView?: () => void;
 };
 
-function TripFact({ icon: Icon, label, value }: TripFactProps) {
+function TripFact({ icon: Icon, label, value, onView }: TripFactProps) {
   return (
-    <div className="apply-trip-fact">
+    <div className={onView ? "apply-trip-fact apply-trip-fact--with-action" : "apply-trip-fact"}>
       <Icon size={20} aria-hidden="true" />
       <span>{label}</span>
       <strong>{value}</strong>
+      {onView ? (
+        <button className="apply-trip-fact__button" type="button" onClick={onView}>
+          <Eye size={16} aria-hidden="true" />
+          Смотреть
+        </button>
+      ) : null}
     </div>
   );
+}
+
+type ApplyInfoModalProps = {
+  title: string;
+  content: string;
+  onClose: () => void;
+};
+
+function ApplyInfoModal({ title, content, onClose }: ApplyInfoModalProps) {
+  return (
+    <div
+      className="modal-backdrop"
+      role="presentation"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) {
+          onClose();
+        }
+      }}
+    >
+      <section className="trip-modal apply-info-modal" role="dialog" aria-modal="true" aria-label={title}>
+        <div className="trip-modal__header">
+          <div>
+            <span className="admin-kicker">Информация о поездке</span>
+            <h2>{title}</h2>
+          </div>
+          <button className="icon-button" type="button" aria-label="Закрыть" onClick={onClose}>
+            <X size={21} aria-hidden="true" />
+          </button>
+        </div>
+
+        <p>{content}</p>
+
+        <div className="apply-info-modal__actions">
+          <button className="button button--primary" type="button" onClick={onClose}>
+            Понятно
+          </button>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function getApplyTitleClassName(title: string) {
+  const longestTitlePartLength = Math.max(...title.split(/[\s,]+/).map((part) => part.length));
+
+  if (title.length > 46 || longestTitlePartLength > 18) {
+    return "apply-hero__title apply-hero__title--compact";
+  }
+
+  if (title.length > 30 || longestTitlePartLength > 12) {
+    return "apply-hero__title apply-hero__title--medium";
+  }
+
+  return "apply-hero__title";
 }
 
 function addParticipantToTrip(trip: PublicTrip | null, participant: PublicTripParticipant) {

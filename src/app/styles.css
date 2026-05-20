@@ -603,33 +603,6 @@ textarea {
   text-transform: uppercase;
 }
 
-.trip-carousel__controls {
-  display: inline-flex;
-  gap: 8px;
-}
-
-.trip-carousel__controls button {
-  display: grid;
-  width: 42px;
-  height: 42px;
-  place-items: center;
-  color: var(--black);
-  border: 1px solid rgba(9, 8, 7, 0.12);
-  border-radius: 8px;
-  background: white;
-  cursor: pointer;
-  transition:
-    transform 180ms ease,
-    border-color 180ms ease,
-    background 180ms ease;
-}
-
-.trip-carousel__controls button:hover {
-  transform: translateY(-2px);
-  border-color: rgba(215, 170, 69, 0.55);
-  background: var(--gold-strong);
-}
-
 .trip-carousel-card,
 .trip-carousel-empty {
   min-height: min(560px, calc(100svh - var(--header-height) - 140px));
@@ -674,6 +647,50 @@ textarea {
 .trip-carousel-card__content {
   width: min(620px, 100%);
   padding: clamp(24px, 4vw, 42px);
+}
+
+.trip-carousel-card__content--with-arrows {
+  padding-right: clamp(68px, 7vw, 86px);
+  padding-left: clamp(68px, 7vw, 86px);
+}
+
+.trip-carousel-card__arrows {
+  position: absolute;
+  z-index: 2;
+  top: 50%;
+  right: 16px;
+  left: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  pointer-events: none;
+  transform: translateY(-50%);
+}
+
+.trip-carousel-card__arrow {
+  display: grid;
+  width: 48px;
+  height: 48px;
+  place-items: center;
+  color: var(--gold-strong);
+  border: 1px solid rgba(243, 198, 95, 0.58);
+  border-radius: 8px;
+  background: rgba(9, 8, 7, 0.48);
+  box-shadow: 0 14px 38px rgba(0, 0, 0, 0.28);
+  cursor: pointer;
+  pointer-events: auto;
+  transition:
+    color 180ms ease,
+    transform 180ms ease,
+    border-color 180ms ease,
+    background 180ms ease;
+}
+
+.trip-carousel-card__arrow:hover {
+  color: var(--black);
+  border-color: var(--gold-strong);
+  background: var(--gold-strong);
+  transform: scale(1.04);
 }
 
 .trip-carousel-card h3 {
@@ -923,6 +940,10 @@ textarea {
   margin-bottom: 34px;
 }
 
+.apply-hero__brand > div {
+  min-width: 0;
+}
+
 .apply-hero__logo {
   width: clamp(72px, 8vw, 104px);
   height: auto;
@@ -941,8 +962,22 @@ textarea {
 
 .apply-hero h1 {
   margin: 8px 0 0;
-  font-size: clamp(2.35rem, 5vw, 5rem);
   line-height: 0.98;
+}
+
+.apply-hero__title {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  text-wrap: balance;
+  font-size: 4.55rem;
+}
+
+.apply-hero__title--medium {
+  font-size: 3.85rem;
+}
+
+.apply-hero__title--compact {
+  font-size: 3.25rem;
 }
 
 .apply-hero > p {
@@ -990,6 +1025,39 @@ textarea {
 
 .apply-trip-fact strong {
   line-height: 1.35;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.apply-trip-fact--with-action {
+  align-content: start;
+}
+
+.apply-trip-fact__button {
+  display: inline-flex;
+  grid-column: 2;
+  width: fit-content;
+  min-height: 34px;
+  align-items: center;
+  gap: 7px;
+  margin-top: 6px;
+  padding: 0 11px;
+  color: var(--gold-strong);
+  border: 1px solid rgba(243, 198, 95, 0.34);
+  border-radius: 8px;
+  background: rgba(243, 198, 95, 0.1);
+  font-weight: 850;
+  cursor: pointer;
+  transition:
+    color 180ms ease,
+    border-color 180ms ease,
+    background 180ms ease;
+}
+
+.apply-trip-fact__button:hover {
+  color: var(--black);
+  border-color: var(--gold-strong);
+  background: var(--gold-strong);
 }
 
 .apply-participants {
@@ -1060,6 +1128,40 @@ textarea {
   margin-top: 20px;
 }
 
+.apply-submit:disabled {
+  cursor: not-allowed;
+  opacity: 0.58;
+}
+
+.apply-confirmations {
+  display: grid;
+  gap: 10px;
+  margin-top: 16px;
+  padding: 14px;
+  border: 1px solid rgba(47, 93, 80, 0.16);
+  border-radius: 8px;
+  background: rgba(47, 93, 80, 0.07);
+}
+
+.apply-confirmation {
+  display: grid;
+  grid-template-columns: 20px 1fr;
+  gap: 10px;
+  align-items: start;
+  color: var(--charcoal);
+  font-weight: 800;
+  line-height: 1.35;
+  cursor: pointer;
+}
+
+.apply-confirmation input {
+  width: 18px;
+  height: 18px;
+  margin: 1px 0 0;
+  accent-color: var(--green);
+  cursor: pointer;
+}
+
 .apply-error,
 .apply-success,
 .apply-closed {
@@ -1096,6 +1198,27 @@ textarea {
   margin-top: 5px;
   color: var(--muted);
   line-height: 1.55;
+}
+
+.apply-info-modal {
+  width: min(560px, 100%);
+}
+
+.apply-info-modal p {
+  margin: 18px 0 0;
+  padding: 16px;
+  color: var(--charcoal);
+  border: 1px solid rgba(47, 93, 80, 0.14);
+  border-radius: 8px;
+  background: rgba(255, 250, 240, 0.72);
+  line-height: 1.65;
+  white-space: pre-wrap;
+}
+
+.apply-info-modal__actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 18px;
 }
 
 .auth-page {
@@ -1836,6 +1959,7 @@ textarea {
 .participants-table {
   margin-top: 16px;
   overflow-x: auto;
+  scrollbar-gutter: stable;
 }
 
 .participants-table__row {
@@ -1845,13 +1969,18 @@ textarea {
     minmax(130px, 0.75fr)
     minmax(80px, 0.45fr)
     minmax(150px, 0.8fr)
-    minmax(190px, 1fr)
     minmax(150px, 0.8fr)
-    minmax(120px, 0.7fr);
+    minmax(120px, 0.7fr)
+    44px;
   gap: 14px;
-  min-width: 1040px;
+  align-items: center;
+  min-width: 930px;
   padding: 14px 0;
   border-top: 1px solid var(--line);
+}
+
+.participants-table__row > * {
+  min-width: 0;
 }
 
 .participants-table__row--head {
@@ -1859,6 +1988,132 @@ textarea {
   font-size: 0.82rem;
   font-weight: 900;
   text-transform: uppercase;
+}
+
+.participant-actions {
+  position: sticky;
+  right: 0;
+  z-index: 2;
+  display: flex;
+  min-width: 44px;
+  padding-left: 8px;
+  justify-content: flex-end;
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0), white 34%);
+}
+
+.participant-actions--head {
+  align-self: stretch;
+  pointer-events: none;
+}
+
+.participants-table__row--head .participant-actions {
+  z-index: 3;
+}
+
+.participant-actions__trigger {
+  display: grid;
+  flex: 0 0 auto;
+  width: 30px;
+  height: 34px;
+  place-items: center;
+  color: var(--muted);
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.participant-actions__trigger:hover {
+  color: var(--green);
+}
+
+.participant-actions__menu {
+  position: fixed;
+  z-index: 1000;
+  display: grid;
+  min-width: 150px;
+  padding: 6px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: white;
+  box-shadow: 0 18px 52px rgba(33, 28, 22, 0.16);
+}
+
+.participant-actions__menu button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 38px;
+  padding: 0 10px;
+  color: var(--ink);
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.participant-actions__menu button:hover {
+  background: rgba(47, 93, 80, 0.08);
+}
+
+.participant-actions__menu .participant-actions__danger {
+  color: var(--wine);
+}
+
+.participant-modal {
+  width: min(680px, 100%);
+}
+
+.participant-modal__grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin: 18px 0 0;
+}
+
+.participant-modal__grid div {
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 250, 240, 0.68);
+}
+
+.participant-modal__grid dt {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.participant-modal__grid dd {
+  margin: 8px 0 0;
+  overflow-wrap: anywhere;
+  font-weight: 800;
+  line-height: 1.35;
+}
+
+.confirm-modal {
+  width: min(520px, 100%);
+}
+
+.confirm-modal p {
+  margin: 18px 0 0;
+  color: var(--muted);
+  line-height: 1.65;
+}
+
+.confirm-modal p strong {
+  color: var(--ink);
+}
+
+.confirm-modal__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 22px;
 }
 
 .contacts-section {
@@ -2219,6 +2474,11 @@ textarea {
     padding: 28px;
   }
 
+  .trip-carousel-card__content--with-arrows {
+    padding-right: 72px;
+    padding-left: 72px;
+  }
+
   .trip-carousel-card h3 {
     font-size: clamp(1.9rem, 3vw, 3.1rem);
   }
@@ -2278,6 +2538,18 @@ textarea {
 
   .apply-hero {
     min-height: auto;
+  }
+
+  .apply-hero__title {
+    font-size: 4rem;
+  }
+
+  .apply-hero__title--medium {
+    font-size: 3.35rem;
+  }
+
+  .apply-hero__title--compact {
+    font-size: 2.85rem;
   }
 
   .auth-brand-panel {
@@ -2377,6 +2649,21 @@ textarea {
     padding: 22px;
   }
 
+  .trip-carousel-card__content--with-arrows {
+    padding-right: 58px;
+    padding-left: 58px;
+  }
+
+  .trip-carousel-card__arrow {
+    width: 40px;
+    height: 40px;
+  }
+
+  .trip-carousel-card__arrows {
+    left: 10px;
+    right: 10px;
+  }
+
   .trip-carousel-card__meta,
   .apply-trip-grid {
     grid-template-columns: 1fr;
@@ -2402,6 +2689,18 @@ textarea {
 
   .apply-hero__logo {
     width: 64px;
+  }
+
+  .apply-hero__title {
+    font-size: 2.75rem;
+  }
+
+  .apply-hero__title--medium {
+    font-size: 2.35rem;
+  }
+
+  .apply-hero__title--compact {
+    font-size: 2rem;
   }
 
   .auth-page {
@@ -2446,6 +2745,15 @@ textarea {
   }
 
   .trip-form__actions {
+    display: grid;
+  }
+
+  .participant-modal__grid,
+  .confirm-modal__actions {
+    grid-template-columns: 1fr;
+  }
+
+  .confirm-modal__actions {
     display: grid;
   }
 

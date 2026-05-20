@@ -3,11 +3,13 @@ import {
   ArrowLeft,
   CalendarDays,
   ClipboardList,
+  Eye,
   FileText,
   Globe2,
   LayoutDashboard,
   LogOut,
   MapPin,
+  MoreVertical,
   Pencil,
   Plus,
   Settings,
@@ -21,7 +23,9 @@ import {
   type CountryOption,
   type CreateTripInput,
   type Trip,
+  type TripParticipant,
   createTrip,
+  deleteTripParticipant,
   deleteTrip,
   fetchCities,
   fetchCountries,
@@ -36,6 +40,12 @@ type AdminPanelProps = {
   homeHref: string;
   onHome: () => void;
   onLogout: () => void;
+};
+
+type ParticipantMenuState = {
+  participantId: string;
+  top: number;
+  left: number;
 };
 
 type TripFormState = {
@@ -85,6 +95,9 @@ export function AdminPanel({ homeHref, onHome, onLogout }: AdminPanelProps) {
   const [isSaving, setIsSaving] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [isLoadingTrip, setIsLoadingTrip] = useState(false);
+  const [viewingParticipant, setViewingParticipant] = useState<TripParticipant | null>(null);
+  const [participantToDelete, setParticipantToDelete] = useState<TripParticipant | null>(null);
+  const [isDeletingParticipant, setIsDeletingParticipant] = useState(false);
 
   const selectedCountry = useMemo(
     () => countries.find((country) => country.code === form.countryCode),
@@ -262,6 +275,43 @@ export function AdminPanel({ homeHref, onHome, onLogout }: AdminPanelProps) {
     }
   };
 
+  const handleBackToTrips = () => {
+    setSelectedTrip(null);
+    setViewingParticipant(null);
+    setParticipantToDelete(null);
+  };
+
+  const handleDeleteParticipant = async () => {
+    if (!selectedTrip || !participantToDelete) {
+      return;
+    }
+
+    const participantId = participantToDelete.id;
+    setIsDeletingParticipant(true);
+    setError("");
+
+    try {
+      await deleteTripParticipant(selectedTrip.id, participantId);
+      setSelectedTrip((currentTrip) => removeParticipantFromSelectedTrip(currentTrip, participantId));
+      setTrips((currentTrips) => {
+        const nextTrips = removeParticipantFromTripList(currentTrips, selectedTrip.id);
+
+        setMetrics(buildMetrics(nextTrips));
+        return nextTrips;
+      });
+      setParticipantToDelete(null);
+    } catch (requestError) {
+      if (isUnauthorizedError(requestError)) {
+        onLogout();
+        return;
+      }
+
+      setError("Не удалось удалить участника");
+    } finally {
+      setIsDeletingParticipant(false);
+    }
+  };
+
   const openTrip = async (tripId: string) => {
     setError("");
     setIsLoadingTrip(true);
@@ -349,9 +399,11 @@ export function AdminPanel({ homeHref, onHome, onLogout }: AdminPanelProps) {
           <TripDetails
             trip={selectedTrip}
             isDeleting={isDeleting}
-            onBack={() => setSelectedTrip(null)}
+            onBack={handleBackToTrips}
             onDelete={() => handleDeleteTrip(selectedTrip)}
             onEdit={() => openEditModal(selectedTrip)}
+            onViewParticipant={setViewingParticipant}
+            onRequestDeleteParticipant={setParticipantToDelete}
           />
         ) : (
           <>
@@ -530,6 +582,22 @@ export function AdminPanel({ homeHref, onHome, onLogout }: AdminPanelProps) {
           </section>
         </div>
       ) : null}
+
+      {viewingParticipant ? (
+        <ParticipantViewModal
+          participant={viewingParticipant}
+          onClose={() => setViewingParticipant(null)}
+        />
+      ) : null}
+
+      {participantToDelete ? (
+        <DeleteParticipantModal
+          participant={participantToDelete}
+          isDeleting={isDeletingParticipant}
+          onCancel={() => setParticipantToDelete(null)}
+          onConfirm={handleDeleteParticipant}
+        />
+      ) : null}
     </div>
   );
 }
@@ -622,10 +690,37 @@ type TripDetailsProps = {
   onBack: () => void;
   onDelete: () => void;
   onEdit: () => void;
+  onViewParticipant: (participant: TripParticipant) => void;
+  onRequestDeleteParticipant: (participant: TripParticipant) => void;
 };
 
-function TripDetails({ trip, isDeleting, onBack, onDelete, onEdit }: TripDetailsProps) {
+function TripDetails({
+  trip,
+  isDeleting,
+  onBack,
+  onDelete,
+  onEdit,
+  onViewParticipant,
+  onRequestDeleteParticipant,
+}: TripDetailsProps) {
   const participants = trip.participants || [];
+  const [openParticipantMenu, setOpenParticipantMenu] = useState<ParticipantMenuState | null>(null);
+
+  useEffect(() => {
+    if (!openParticipantMenu) {
+      return;
+    }
+
+    const closeMenu = () => setOpenParticipantMenu(null);
+
+    window.addEventListener("resize", closeMenu);
+    window.addEventListener("scroll", closeMenu, true);
+
+    return () => {
+      window.removeEventListener("resize", closeMenu);
+      window.removeEventListener("scroll", closeMenu, true);
+    };
+  }, [openParticipantMenu]);
 
   return (
     <section className="admin-panel trip-detail">
@@ -707,15 +802,19 @@ function TripDetails({ trip, isDeleting, onBack, onDelete, onEdit }: TripDetails
         </div>
 
         {participants.length ? (
-          <div className="participants-table" role="table" aria-label="Участники поездки">
+          <div
+            className="participants-table"
+            role="table"
+            aria-label="Участники поездки"
+          >
             <div className="participants-table__row participants-table__row--head" role="row">
               <span role="columnheader">Имя</span>
               <span role="columnheader">Город</span>
               <span role="columnheader">Дней</span>
               <span role="columnheader">Телефон</span>
-              <span role="columnheader">Email</span>
               <span role="columnheader">Пожертвование</span>
               <span role="columnheader">Статус</span>
+              <span className="participant-actions participant-actions--head" role="columnheader" aria-label="Действия" />
             </div>
             {participants.map((participant) => (
               <div className="participants-table__row" role="row" key={participant.id}>
@@ -723,9 +822,68 @@ function TripDetails({ trip, isDeleting, onBack, onDelete, onEdit }: TripDetails
                 <span role="cell">{participant.cityName || "—"}</span>
                 <span role="cell">{participant.availableDays ? `${participant.availableDays}` : "—"}</span>
                 <span role="cell">{participant.phone || "—"}</span>
-                <span role="cell">{participant.email || "—"}</span>
                 <span role="cell">{participant.donation || "—"}</span>
                 <span role="cell">{participant.status}</span>
+                <div className="participant-actions" role="cell">
+                  <button
+                    className="participant-actions__trigger"
+                    type="button"
+                    aria-label={`Действия для ${participant.fullName}`}
+                    aria-haspopup="menu"
+                    aria-expanded={openParticipantMenu?.participantId === participant.id}
+                    onClick={(event) => {
+                      const buttonRect = event.currentTarget.getBoundingClientRect();
+                      const menuWidth = 150;
+                      const menuHeight = 92;
+                      const maxLeft = Math.max(window.innerWidth - menuWidth - 12, 12);
+                      const left = Math.min(Math.max(buttonRect.right - menuWidth, 12), maxLeft);
+                      const top =
+                        buttonRect.bottom + menuHeight + 12 > window.innerHeight
+                          ? Math.max(buttonRect.top - menuHeight - 6, 12)
+                          : buttonRect.bottom + 6;
+
+                      setOpenParticipantMenu((currentMenu) =>
+                        currentMenu?.participantId === participant.id
+                          ? null
+                          : { participantId: participant.id, top, left },
+                      );
+                    }}
+                  >
+                    <MoreVertical size={21} aria-hidden="true" />
+                  </button>
+
+                  {openParticipantMenu?.participantId === participant.id ? (
+                    <div
+                      className="participant-actions__menu"
+                      role="menu"
+                      style={{ top: openParticipantMenu.top, left: openParticipantMenu.left }}
+                    >
+                      <button
+                        type="button"
+                        role="menuitem"
+                        onClick={() => {
+                          setOpenParticipantMenu(null);
+                          onViewParticipant(participant);
+                        }}
+                      >
+                        <Eye size={16} aria-hidden="true" />
+                        Смотреть
+                      </button>
+                      <button
+                        className="participant-actions__danger"
+                        type="button"
+                        role="menuitem"
+                        onClick={() => {
+                          setOpenParticipantMenu(null);
+                          onRequestDeleteParticipant(participant);
+                        }}
+                      >
+                        <Trash2 size={16} aria-hidden="true" />
+                        Удалить
+                      </button>
+                    </div>
+                  ) : null}
+                </div>
               </div>
             ))}
           </div>
@@ -737,6 +895,104 @@ function TripDetails({ trip, isDeleting, onBack, onDelete, onEdit }: TripDetails
         )}
       </div>
     </section>
+  );
+}
+
+type ParticipantViewModalProps = {
+  participant: TripParticipant;
+  onClose: () => void;
+};
+
+function ParticipantViewModal({ participant, onClose }: ParticipantViewModalProps) {
+  return (
+    <div className="modal-backdrop" role="presentation">
+      <section className="trip-modal participant-modal" role="dialog" aria-modal="true" aria-label="Участник поездки">
+        <div className="trip-modal__header">
+          <div>
+            <span className="admin-kicker">Участник поездки</span>
+            <h2>{participant.fullName}</h2>
+          </div>
+          <button className="icon-button" type="button" aria-label="Закрыть" onClick={onClose}>
+            <X size={21} aria-hidden="true" />
+          </button>
+        </div>
+
+        <dl className="participant-modal__grid">
+          <div>
+            <dt>Город</dt>
+            <dd>{participant.cityName || "—"}</dd>
+          </div>
+          <div>
+            <dt>Дней</dt>
+            <dd>{participant.availableDays || "—"}</dd>
+          </div>
+          <div>
+            <dt>Телефон</dt>
+            <dd>{participant.phone || "—"}</dd>
+          </div>
+          <div>
+            <dt>Email</dt>
+            <dd>{participant.email || "—"}</dd>
+          </div>
+          <div>
+            <dt>Пожертвование</dt>
+            <dd>{participant.donation || "—"}</dd>
+          </div>
+          <div>
+            <dt>Статус</dt>
+            <dd>{participant.status}</dd>
+          </div>
+          <div>
+            <dt>Дата заявки</dt>
+            <dd>{formatDateTime(participant.createdAt)}</dd>
+          </div>
+        </dl>
+      </section>
+    </div>
+  );
+}
+
+type DeleteParticipantModalProps = {
+  participant: TripParticipant;
+  isDeleting: boolean;
+  onCancel: () => void;
+  onConfirm: () => void;
+};
+
+function DeleteParticipantModal({
+  participant,
+  isDeleting,
+  onCancel,
+  onConfirm,
+}: DeleteParticipantModalProps) {
+  return (
+    <div className="modal-backdrop" role="presentation">
+      <section className="trip-modal confirm-modal" role="dialog" aria-modal="true" aria-label="Удаление участника">
+        <div className="trip-modal__header">
+          <div>
+            <span className="admin-kicker">Удаление участника</span>
+            <h2>Удалить заявку?</h2>
+          </div>
+          <button className="icon-button" type="button" aria-label="Закрыть" onClick={onCancel}>
+            <X size={21} aria-hidden="true" />
+          </button>
+        </div>
+
+        <p>
+          Вы уверены, что хотите удалить участника <strong>{participant.fullName}</strong>?
+        </p>
+
+        <div className="confirm-modal__actions">
+          <button className="button button--secondary button--neutral" type="button" onClick={onCancel}>
+            Отмена
+          </button>
+          <button className="button button--danger" type="button" disabled={isDeleting} onClick={onConfirm}>
+            <Trash2 size={18} aria-hidden="true" />
+            {isDeleting ? "Удаляем..." : "Удалить"}
+          </button>
+        </div>
+      </section>
+    </div>
   );
 }
 
@@ -753,6 +1009,41 @@ function tripToForm(trip: Trip): TripFormState {
     cost: trip.cost,
     note: trip.note || "",
   };
+}
+
+function removeParticipantFromSelectedTrip(trip: Trip | null, participantId: string) {
+  if (!trip) {
+    return trip;
+  }
+
+  const participants = (trip.participants || []).filter((participant) => participant.id !== participantId);
+  const participantsCount = participants.length;
+
+  return {
+    ...trip,
+    participants,
+    participantsCount,
+    availableSpots: Math.max(Number(trip.peopleLimit || 0) - participantsCount, 0),
+  };
+}
+
+function removeParticipantFromTripList(trips: Trip[], tripId: string) {
+  return trips.map((trip) => {
+    if (trip.id !== tripId) {
+      return trip;
+    }
+
+    const participantsCount = Math.max(
+      Number(trip.participantsCount ?? trip.participants?.length ?? 0) - 1,
+      0,
+    );
+
+    return {
+      ...trip,
+      participantsCount,
+      availableSpots: Math.max(Number(trip.peopleLimit || 0) - participantsCount, 0),
+    };
+  });
 }
 
 function buildMetrics(trips: Trip[]): AdminMetric[] {
@@ -824,4 +1115,24 @@ function formatDateRange(startDate: string, endDate: string) {
   }
 
   return `${formatDate(startDate)} - ${formatDate(endDate)}`;
+}
+
+function formatDateTime(value?: string) {
+  if (!value) {
+    return "—";
+  }
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return "—";
+  }
+
+  return new Intl.DateTimeFormat("ru", {
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(date);
 }

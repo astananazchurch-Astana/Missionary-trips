@@ -200,7 +200,30 @@ export default async function handleRequest(request, response) {
       return;
     }
 
+    const adminTripParticipantMatch = url.pathname.match(
+      /^\/api\/admin\/trips\/([^/]+)\/participants\/([^/]+)$/,
+    );
     const tripMatch = url.pathname.match(/^\/api\/admin\/trips\/([^/]+)$/);
+
+    if (request.method === "DELETE" && adminTripParticipantMatch) {
+      if (!authenticateAdmin(request)) {
+        sendJson(response, 401, { message: "Unauthorized." }, origin);
+        return;
+      }
+
+      const isDeleted = await deleteTripParticipantRecord(
+        adminTripParticipantMatch[1],
+        adminTripParticipantMatch[2],
+      );
+
+      if (!isDeleted) {
+        sendJson(response, 404, { message: "Participant not found." }, origin);
+        return;
+      }
+
+      sendJson(response, 200, { ok: true }, origin);
+      return;
+    }
 
     if (request.method === "GET" && tripMatch) {
       if (!authenticateAdmin(request)) {
@@ -510,7 +533,9 @@ function toPublicTrip(trip) {
     peopleLimit: trip.peopleLimit,
     participantsCount,
     availableSpots: Math.max(Number(trip.peopleLimit || 0) - participantsCount, 0),
+    restrictions: trip.restrictions,
     cost: trip.cost,
+    note: trip.note || "",
     status: trip.status,
     participants: (trip.participants || []).map(toPublicParticipant),
   };
@@ -890,6 +915,47 @@ async function deleteTripRecord(id) {
   const nextTrips = trips.filter((item) => item.id !== id);
 
   if (nextTrips.length === trips.length) {
+    return false;
+  }
+
+  writeTripsFile(nextTrips);
+  return true;
+}
+
+async function deleteTripParticipantRecord(tripId, participantId) {
+  if (databasePool) {
+    await ensureDatabase();
+    const result = await databasePool.query(
+      "DELETE FROM trip_participants WHERE trip_id = $1 AND id = $2",
+      [tripId, participantId],
+    );
+
+    return result.rowCount > 0;
+  }
+
+  const trips = await readTrips();
+  let isDeleted = false;
+  const nextTrips = trips.map((trip) => {
+    if (trip.id !== tripId) {
+      return trip;
+    }
+
+    const participants = trip.participants || [];
+    const nextParticipants = participants.filter((participant) => participant.id !== participantId);
+
+    if (nextParticipants.length === participants.length) {
+      return trip;
+    }
+
+    isDeleted = true;
+
+    return {
+      ...trip,
+      participants: nextParticipants,
+    };
+  });
+
+  if (!isDeleted) {
     return false;
   }
 

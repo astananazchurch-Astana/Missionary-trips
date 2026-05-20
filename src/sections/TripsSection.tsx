@@ -1,5 +1,5 @@
 import { type CSSProperties, useEffect, useMemo, useState } from "react";
-import { ArrowLeft, ArrowRight, CalendarDays, CheckCircle2, MapPin, UsersRound } from "lucide-react";
+import { ArrowLeft, ArrowRight, CalendarDays, CheckCircle2, UsersRound, Wallet } from "lucide-react";
 import { fetchPublicTrips, type PublicTrip } from "../shared/lib/auth";
 import { appPath } from "../shared/lib/routes";
 import { SectionHeading } from "../shared/ui/SectionHeading";
@@ -95,21 +95,38 @@ export function TripsSection(_props: TripsSectionProps) {
         <div className="trip-carousel" aria-label="Актуальные поездки">
           <div className="trip-carousel__topline">
             <span>Актуальные поездки</span>
-            {showControls ? (
-              <div className="trip-carousel__controls">
-                <button type="button" aria-label="Предыдущая поездка" onClick={goToPreviousTrip}>
-                  <ArrowLeft size={18} aria-hidden="true" />
-                </button>
-                <button type="button" aria-label="Следующая поездка" onClick={goToNextTrip}>
-                  <ArrowRight size={18} aria-hidden="true" />
-                </button>
-              </div>
-            ) : null}
           </div>
 
           {activeTrip ? (
             <article className="trip-carousel-card" key={activeTrip.id} style={carouselStyle}>
-              <div className="trip-carousel-card__content">
+              {showControls ? (
+                <div className="trip-carousel-card__arrows">
+                  <button
+                    className="trip-carousel-card__arrow trip-carousel-card__arrow--prev"
+                    type="button"
+                    aria-label="Предыдущая поездка"
+                    onClick={goToPreviousTrip}
+                  >
+                    <ArrowLeft size={22} aria-hidden="true" />
+                  </button>
+                  <button
+                    className="trip-carousel-card__arrow trip-carousel-card__arrow--next"
+                    type="button"
+                    aria-label="Следующая поездка"
+                    onClick={goToNextTrip}
+                  >
+                    <ArrowRight size={22} aria-hidden="true" />
+                  </button>
+                </div>
+              ) : null}
+
+              <div
+                className={
+                  showControls
+                    ? "trip-carousel-card__content trip-carousel-card__content--with-arrows"
+                    : "trip-carousel-card__content"
+                }
+              >
                 <span className="trip-carousel-card__status">{activeTrip.status}</span>
                 <h3>
                   {activeTrip.countryName}, {activeTrip.cityName}
@@ -130,7 +147,7 @@ export function TripsSection(_props: TripsSectionProps) {
                     Нужно людей: {getAvailableSpots(activeTrip)} из {activeTrip.peopleLimit}
                   </small>
                   <small>
-                    <MapPin size={17} aria-hidden="true" />
+                    <Wallet size={17} aria-hidden="true" />
                     {activeTrip.cost}
                   </small>
                 </div>

@@ -65,7 +65,9 @@ export type PublicTrip = Pick<
   | "peopleLimit"
   | "participantsCount"
   | "availableSpots"
+  | "restrictions"
   | "cost"
+  | "note"
   | "status"
 > & {
   participants?: PublicTripParticipant[];
@@ -234,6 +236,12 @@ export async function updateTrip(id: string, input: CreateTripInput) {
 
 export async function deleteTrip(id: string) {
   await apiFetch<{ ok: boolean }>(`/api/admin/trips/${id}`, {
+    method: "DELETE",
+  });
+}
+
+export async function deleteTripParticipant(tripId: string, participantId: string) {
+  await apiFetch<{ ok: boolean }>(`/api/admin/trips/${tripId}/participants/${participantId}`, {
     method: "DELETE",
   });
 }
