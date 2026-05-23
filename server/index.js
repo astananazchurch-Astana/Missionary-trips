@@ -27,7 +27,7 @@ const ADMIN_PASSWORD_HASH =
   "647729ac0703559ac4510218bd6698b0ad653b86be85dcf62b63a5def497d1be26f74cd2ceb8676daa7439f503f85f6f8ceb46dd978e6ddb8a33d54301a36606";
 const JWT_SECRET = process.env.JWT_SECRET || "development-only-change-this-secret";
 const ACCESS_TOKEN_TTL_SECONDS = Number(process.env.ACCESS_TOKEN_TTL_SECONDS || 60 * 60);
-const BODY_LIMIT_BYTES = 64 * 1024;
+const BODY_LIMIT_BYTES = 8 * 1024 * 1024;
 const DEFAULT_TRIPS_DATA_FILE = process.env.VERCEL
   ? "/tmp/missionary-trips.json"
   : "server/data/trips.json";
@@ -39,6 +39,10 @@ const ACCESS_CONTROL_DATA_FILE = resolve(
   process.cwd(),
   process.env.ACCESS_CONTROL_DATA_FILE || DEFAULT_ACCESS_CONTROL_DATA_FILE,
 );
+const DEFAULT_REPORTS_DATA_FILE = process.env.VERCEL
+  ? "/tmp/missionary-reports.json"
+  : "server/data/reports.json";
+const REPORTS_DATA_FILE = resolve(process.cwd(), process.env.REPORTS_DATA_FILE || DEFAULT_REPORTS_DATA_FILE);
 const ACCESS_ACTIONS = [
   { id: "view", label: "Просмотр" },
   { id: "create", label: "Создать" },
@@ -63,6 +67,12 @@ const ACCESS_MODULES = [
     resource: "participants",
     label: "Заявки участников",
     actions: ["view", "update", "delete"],
+  },
+  {
+    group: "Отчеты",
+    resource: "reports",
+    label: "Отчеты по поездкам",
+    actions: ["view", "create", "update", "delete"],
   },
   {
     group: "Доступы",
@@ -108,6 +118,7 @@ const ACCESS_PERMISSIONS = ACCESS_MODULES.flatMap((module) =>
 const LEGACY_PERMISSION_MAP = {
   "trips:manage": ["trips:create", "trips:update", "trips:delete"],
   "participants:manage": ["participants:view", "participants:update", "participants:delete"],
+  "reports:manage": ["reports:view", "reports:create", "reports:update", "reports:delete"],
   "accounts:manage": ["accounts:view", "accounts:create", "accounts:update", "accounts:delete"],
   "roles:manage": ["roles:view", "roles:create", "roles:update", "roles:delete"],
 };
@@ -241,13 +252,13 @@ export default async function handleRequest(request, response) {
         return;
       }
 
-      const trips = await readTrips();
+      const [trips, reports] = await Promise.all([readTrips(), readReports()]);
 
       sendJson(
         response,
         200,
         {
-          metrics: getDashboardMetrics(trips),
+          metrics: getDashboardMetrics(trips, reports),
           trips: trips.map(toTripListItem),
           tasks: [],
         },
@@ -358,10 +369,166 @@ export default async function handleRequest(request, response) {
     const adminTripParticipantMatch = url.pathname.match(
       /^\/api\/admin\/trips\/([^/]+)\/participants\/([^/]+)$/,
     );
+    const tripLeaderMatch = url.pathname.match(/^\/api\/admin\/trips\/([^/]+)\/leader$/);
+    const tripReportMatch = url.pathname.match(/^\/api\/admin\/trips\/([^/]+)\/report$/);
+    const tripReportCompleteMatch = url.pathname.match(/^\/api\/admin\/trips\/([^/]+)\/report\/complete$/);
+    const reportMatch = url.pathname.match(/^\/api\/admin\/reports\/([^/]+)$/);
     const tripMatch = url.pathname.match(/^\/api\/admin\/trips\/([^/]+)$/);
     const ministryMatch = url.pathname.match(/^\/api\/admin\/ministries\/([^/]+)$/);
     const accessRoleMatch = url.pathname.match(/^\/api\/admin\/roles\/([^/]+)$/);
     const staffAccountMatch = url.pathname.match(/^\/api\/admin\/accounts\/([^/]+)$/);
+
+    if (request.method === "GET" && url.pathname === "/api/admin/leader/trips") {
+      const admin = await authorizeRequest(request, response, origin, [
+        "reports:view",
+        "reports:create",
+        "reports:update",
+      ]);
+
+      if (!admin) {
+        return;
+      }
+
+      sendJson(response, 200, { trips: await getLeaderTrips(admin) }, origin);
+      return;
+    }
+
+    if (request.method === "GET" && url.pathname === "/api/admin/reports") {
+      if (!(await authorizeRequest(request, response, origin, "reports:view"))) {
+        return;
+      }
+
+      sendJson(response, 200, { reports: await getReportsWithTrips() }, origin);
+      return;
+    }
+
+    if (request.method === "POST" && tripLeaderMatch) {
+      const admin = await authorizeRequest(request, response, origin, "trips:update");
+
+      if (!admin) {
+        return;
+      }
+
+      if (!hasUserPermission(admin, "accounts:create")) {
+        sendJson(response, 403, { message: "Forbidden." }, origin);
+        return;
+      }
+
+      const result = await assignTripLeader(tripLeaderMatch[1], await readJsonBody(request), admin);
+      sendJson(response, 200, result, origin);
+      return;
+    }
+
+    if (request.method === "GET" && tripReportMatch) {
+      const admin = await authorizeRequest(request, response, origin, [
+        "reports:view",
+        "reports:create",
+        "reports:update",
+      ]);
+
+      if (!admin) {
+        return;
+      }
+
+      const trip = await getTripRecord(tripReportMatch[1]);
+
+      if (!trip) {
+        sendJson(response, 404, { message: "Trip not found." }, origin);
+        return;
+      }
+
+      if (!canUseTripReport(admin, trip)) {
+        sendJson(response, 403, { message: "Forbidden." }, origin);
+        return;
+      }
+
+      sendJson(response, 200, { report: await getTripReportRecord(trip.id) }, origin);
+      return;
+    }
+
+    if (request.method === "PUT" && tripReportMatch) {
+      const admin = await authorizeRequest(request, response, origin, [
+        "reports:create",
+        "reports:update",
+      ]);
+
+      if (!admin) {
+        return;
+      }
+
+      const trip = await getTripRecord(tripReportMatch[1]);
+
+      if (!trip) {
+        sendJson(response, 404, { message: "Trip not found." }, origin);
+        return;
+      }
+
+      if (!canUseTripReport(admin, trip)) {
+        sendJson(response, 403, { message: "Forbidden." }, origin);
+        return;
+      }
+
+      const existingReport = await getTripReportRecord(trip.id);
+      const requiredPermission = existingReport ? "reports:update" : "reports:create";
+
+      if (!hasUserPermission(admin, requiredPermission)) {
+        sendJson(response, 403, { message: "Forbidden." }, origin);
+        return;
+      }
+
+      const report = buildTripReport(await readJsonBody(request), trip, admin, existingReport, false);
+      await upsertTripReportRecord(report);
+
+      sendJson(response, 200, { report: await getTripReportRecord(trip.id) }, origin);
+      return;
+    }
+
+    if (request.method === "POST" && tripReportCompleteMatch) {
+      const admin = await authorizeRequest(request, response, origin, [
+        "reports:create",
+        "reports:update",
+      ]);
+
+      if (!admin) {
+        return;
+      }
+
+      const trip = await getTripRecord(tripReportCompleteMatch[1]);
+
+      if (!trip) {
+        sendJson(response, 404, { message: "Trip not found." }, origin);
+        return;
+      }
+
+      if (!canUseTripReport(admin, trip)) {
+        sendJson(response, 403, { message: "Forbidden." }, origin);
+        return;
+      }
+
+      const existingReport = await getTripReportRecord(trip.id);
+      const report = buildTripReport(await readJsonBody(request), trip, admin, existingReport, true);
+      await upsertTripReportRecord(report);
+      await updateTripStatus(trip.id, "Завершена");
+
+      sendJson(response, 200, { report: await getTripReportRecord(trip.id) }, origin);
+      return;
+    }
+
+    if (request.method === "DELETE" && reportMatch) {
+      if (!(await authorizeRequest(request, response, origin, "reports:delete"))) {
+        return;
+      }
+
+      const isDeleted = await deleteTripReportRecord(reportMatch[1]);
+
+      if (!isDeleted) {
+        sendJson(response, 404, { message: "Report not found." }, origin);
+        return;
+      }
+
+      sendJson(response, 200, { ok: true }, origin);
+      return;
+    }
 
     if (request.method === "PUT" && ministryMatch) {
       if (!(await authorizeRequest(request, response, origin, "ministries:update"))) {
@@ -738,6 +905,8 @@ function buildTrip(body, existingTrip = null) {
     cost: requiredText(body.cost, "cost", 160),
     note: optionalText(body.note, 1000),
     status: existingTrip?.status || "Набор открыт",
+    leaderAccountId: existingTrip?.leaderAccountId || "",
+    leaderParticipantId: existingTrip?.leaderParticipantId || "",
     createdAt: existingTrip?.createdAt || new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   };
@@ -915,18 +1084,19 @@ function normalizeAccountPhone(value) {
   return digits;
 }
 
-function getDashboardMetrics(trips) {
+function getDashboardMetrics(trips, reports = []) {
   const peopleLimit = trips.reduce((total, trip) => total + Number(trip.peopleLimit || 0), 0);
   const participantsCount = trips.reduce(
     (total, trip) => total + Number(trip.participantsCount ?? trip.participants?.length ?? 0),
     0,
   );
+  const draftReportsCount = reports.filter((report) => report.status !== "completed").length;
 
   return [
     { id: "trips", label: "Активные поездки", value: String(trips.length) },
     { id: "requests", label: "Новые заявки", value: String(participantsCount) },
     { id: "members", label: "Места", value: String(peopleLimit) },
-    { id: "reports", label: "Черновики отчетов", value: "0" },
+    { id: "reports", label: "Черновики отчетов", value: String(draftReportsCount) },
   ];
 }
 
@@ -947,6 +1117,10 @@ function toTripListItem(trip) {
     availableSpots: Math.max(Number(trip.peopleLimit || 0) - participantsCount, 0),
     cost: trip.cost,
     status: trip.status,
+    leaderAccountId: trip.leaderAccountId || "",
+    leaderParticipantId: trip.leaderParticipantId || "",
+    leaderName: trip.leaderName || "",
+    leaderPhone: trip.leaderPhone || "",
   };
 }
 
@@ -1064,6 +1238,330 @@ function canUseAccessResource(user, resource) {
     user,
     ACCESS_PERMISSIONS.filter((permission) => permission.resource === resource).map((permission) => permission.id),
   );
+}
+
+async function assignTripLeader(tripId, body, user) {
+  const trip = await getTripRecord(tripId);
+
+  if (!trip) {
+    throw httpError(404, "Trip not found.");
+  }
+
+  const participantId = requiredText(body.participantId, "participantId", 80);
+  const participant = (trip.participants || []).find((item) => item.id === participantId);
+
+  if (!participant) {
+    throw httpError(404, "Participant not found.");
+  }
+
+  const [ministries, roles] = await Promise.all([readMinistries(), readAccessRoles()]);
+  const phone = normalizeAccountPhone(requiredText(participant.phone, "phone", 32));
+  const existingAccount = await getRawStaffAccountByPhone(phone);
+
+  if (existingAccount && !hasUserPermission(user, "accounts:update")) {
+    throw httpError(403, "Forbidden.");
+  }
+
+  const accountPayload = {
+    ...body,
+    fullName: participant.fullName,
+    phone,
+  };
+  const account = await buildStaffAccount(accountPayload, { ministries, roles }, existingAccount);
+
+  if (existingAccount) {
+    await updateStaffAccountRecord(account);
+  } else {
+    await createStaffAccountRecord(account);
+  }
+
+  await setTripLeaderRecord(trip.id, participant.id, account.id);
+
+  return {
+    account: await getStaffAccountRecord(account.id),
+    trip: await getTripRecord(trip.id),
+  };
+}
+
+async function setTripLeaderRecord(tripId, participantId, accountId) {
+  if (databasePool) {
+    await ensureDatabase();
+    await databasePool.query(
+      `
+        UPDATE trips
+        SET leader_account_id = $2, leader_participant_id = $3, updated_at = NOW()
+        WHERE id = $1
+      `,
+      [tripId, accountId, participantId],
+    );
+    return;
+  }
+
+  const trips = await readTrips();
+  const nextTrips = trips.map((trip) =>
+    trip.id === tripId
+      ? {
+          ...trip,
+          leaderAccountId: accountId,
+          leaderParticipantId: participantId,
+          updatedAt: new Date().toISOString(),
+        }
+      : trip,
+  );
+  writeTripsFile(nextTrips);
+}
+
+async function getLeaderTrips(user) {
+  const trips = await readTrips();
+  const assignedTrips = user.role === "admin"
+    ? trips
+    : trips.filter((trip) => trip.leaderAccountId === user.id);
+
+  return Promise.all(
+    assignedTrips.map(async (trip) => {
+      const fullTrip = await getTripRecord(trip.id);
+      return attachReportToTrip(fullTrip || trip);
+    }),
+  );
+}
+
+async function getReportsWithTrips() {
+  const [reports, trips, accounts] = await Promise.all([readReports(), readTrips(), readStaffAccounts()]);
+  const tripMap = new Map(trips.map((trip) => [trip.id, trip]));
+  const accountMap = new Map(accounts.map((account) => [account.id, account]));
+
+  return reports
+    .map((report) => {
+      const trip = tripMap.get(report.tripId);
+      const leader = accountMap.get(report.leaderAccountId || trip?.leaderAccountId || "");
+
+      return {
+        ...report,
+        trip: trip ? toTripListItem(trip) : null,
+        leaderName: leader?.fullName || trip?.leaderName || "",
+        leaderPhone: leader?.phone || trip?.leaderPhone || "",
+      };
+    })
+    .sort((first, second) => String(second.updatedAt).localeCompare(String(first.updatedAt)));
+}
+
+async function attachReportToTrip(trip) {
+  return {
+    ...trip,
+    report: await getTripReportRecord(trip.id),
+  };
+}
+
+function canUseTripReport(user, trip) {
+  return user?.role === "admin" || trip.leaderAccountId === user?.id;
+}
+
+function buildTripReport(body, trip, user, existingReport = null, shouldComplete = false) {
+  const now = new Date().toISOString();
+  const summary = optionalText(body.summary, 8000);
+  const photos = normalizeReportPhotos(body.photos);
+  const participantReviews = normalizeParticipantReviews(body.participantReviews, trip.participants || [], shouldComplete);
+
+  if (shouldComplete && !summary) {
+    throw httpError(400, "summary is required.");
+  }
+
+  if (shouldComplete && !photos.length) {
+    throw httpError(400, "At least one photo is required.");
+  }
+
+  return {
+    id: existingReport?.id || randomUUID(),
+    tripId: trip.id,
+    leaderAccountId: trip.leaderAccountId || user.id || "",
+    summary,
+    photos,
+    participantReviews,
+    status: shouldComplete ? "completed" : existingReport?.status || "draft",
+    createdAt: existingReport?.createdAt || now,
+    updatedAt: now,
+    completedAt: shouldComplete ? now : existingReport?.completedAt || "",
+  };
+}
+
+function normalizeReportPhotos(value) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  const photos = [];
+
+  for (const photo of value) {
+    if (typeof photo !== "string") {
+      continue;
+    }
+
+    const trimmedPhoto = photo.trim();
+
+    if (!trimmedPhoto) {
+      continue;
+    }
+
+    if (!trimmedPhoto.startsWith("data:image/")) {
+      throw httpError(400, "photos must be images.");
+    }
+
+    if (trimmedPhoto.length > 2_000_000) {
+      throw httpError(400, "photo is too large.");
+    }
+
+    photos.push(trimmedPhoto);
+
+    if (photos.length > 6) {
+      throw httpError(400, "too many photos.");
+    }
+  }
+
+  return photos;
+}
+
+function normalizeParticipantReviews(value, participants, shouldComplete) {
+  const inputReviews = Array.isArray(value) ? value : [];
+  const inputMap = new Map(
+    inputReviews
+      .filter((review) => review && typeof review === "object" && typeof review.participantId === "string")
+      .map((review) => [review.participantId, review]),
+  );
+
+  return participants.map((participant) => {
+    const inputReview = inputMap.get(participant.id) || {};
+    const text = optionalText(inputReview.text, 3000);
+
+    if (shouldComplete && !text) {
+      throw httpError(400, "participant reviews are required.");
+    }
+
+    return {
+      participantId: participant.id,
+      fullName: participant.fullName,
+      text,
+    };
+  });
+}
+
+async function readReports() {
+  if (databasePool) {
+    await ensureDatabase();
+    const result = await databasePool.query(`
+      SELECT
+        id,
+        trip_id,
+        leader_account_id,
+        summary,
+        photos,
+        participant_reviews,
+        status,
+        created_at,
+        updated_at,
+        completed_at
+      FROM trip_reports
+      ORDER BY updated_at DESC
+    `);
+
+    return result.rows.map(rowToTripReport);
+  }
+
+  if (!existsSync(REPORTS_DATA_FILE)) {
+    return [];
+  }
+
+  const content = readFileSync(REPORTS_DATA_FILE, "utf8");
+  const parsed = JSON.parse(content);
+
+  return Array.isArray(parsed) ? parsed : [];
+}
+
+async function getTripReportRecord(tripId) {
+  return (await readReports()).find((report) => report.tripId === tripId) || null;
+}
+
+async function upsertTripReportRecord(report) {
+  if (databasePool) {
+    await ensureDatabase();
+    await databasePool.query(
+      `
+        INSERT INTO trip_reports (
+          id,
+          trip_id,
+          leader_account_id,
+          summary,
+          photos,
+          participant_reviews,
+          status,
+          created_at,
+          updated_at,
+          completed_at
+        )
+        VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7, $8, $9, $10)
+        ON CONFLICT (trip_id)
+        DO UPDATE SET
+          leader_account_id = EXCLUDED.leader_account_id,
+          summary = EXCLUDED.summary,
+          photos = EXCLUDED.photos,
+          participant_reviews = EXCLUDED.participant_reviews,
+          status = EXCLUDED.status,
+          updated_at = EXCLUDED.updated_at,
+          completed_at = EXCLUDED.completed_at
+      `,
+      [
+        report.id,
+        report.tripId,
+        report.leaderAccountId || null,
+        report.summary,
+        JSON.stringify(report.photos),
+        JSON.stringify(report.participantReviews),
+        report.status,
+        report.createdAt,
+        report.updatedAt,
+        report.completedAt || null,
+      ],
+    );
+    return;
+  }
+
+  const reports = await readReports();
+  const nextReports = reports.some((item) => item.tripId === report.tripId)
+    ? reports.map((item) => (item.tripId === report.tripId ? report : item))
+    : [report, ...reports];
+
+  writeReportsFile(nextReports);
+}
+
+async function deleteTripReportRecord(id) {
+  if (databasePool) {
+    await ensureDatabase();
+    const result = await databasePool.query("DELETE FROM trip_reports WHERE id = $1", [id]);
+    return result.rowCount > 0;
+  }
+
+  const reports = await readReports();
+  const nextReports = reports.filter((report) => report.id !== id);
+
+  if (nextReports.length === reports.length) {
+    return false;
+  }
+
+  writeReportsFile(nextReports);
+  return true;
+}
+
+async function updateTripStatus(tripId, status) {
+  if (databasePool) {
+    await ensureDatabase();
+    await databasePool.query("UPDATE trips SET status = $2, updated_at = NOW() WHERE id = $1", [tripId, status]);
+    return;
+  }
+
+  const trips = await readTrips();
+  const nextTrips = trips.map((trip) =>
+    trip.id === tripId ? { ...trip, status, updatedAt: new Date().toISOString() } : trip,
+  );
+  writeTripsFile(nextTrips);
 }
 
 async function readAccessControl() {
@@ -1536,6 +2034,10 @@ async function readTrips() {
         trips.cost,
         trips.note,
         trips.status,
+        trips.leader_account_id,
+        trips.leader_participant_id,
+        leader_accounts.full_name AS leader_name,
+        leader_accounts.phone AS leader_phone,
         trips.created_at,
         trips.updated_at,
         COALESCE(participant_counts.participants_count, 0) AS participants_count
@@ -1545,6 +2047,7 @@ async function readTrips() {
         FROM trip_participants
         GROUP BY trip_id
       ) participant_counts ON participant_counts.trip_id = trips.id
+      LEFT JOIN staff_accounts leader_accounts ON leader_accounts.id = trips.leader_account_id
       ORDER BY trips.created_at DESC
     `);
 
@@ -1584,6 +2087,10 @@ async function getPublicTrips() {
         trips.cost,
         trips.note,
         trips.status,
+        trips.leader_account_id,
+        trips.leader_participant_id,
+        leader_accounts.full_name AS leader_name,
+        leader_accounts.phone AS leader_phone,
         trips.created_at,
         trips.updated_at,
         COALESCE(participant_counts.participants_count, 0) AS participants_count
@@ -1593,6 +2100,7 @@ async function getPublicTrips() {
         FROM trip_participants
         GROUP BY trip_id
       ) participant_counts ON participant_counts.trip_id = trips.id
+      LEFT JOIN staff_accounts leader_accounts ON leader_accounts.id = trips.leader_account_id
       ORDER BY trips.created_at DESC
     `);
 
@@ -1626,24 +2134,29 @@ async function getTripRecord(id) {
     const result = await databasePool.query(
       `
         SELECT
-          id,
-          country_code,
-          country_name,
-          city_name,
-          description,
-          trip_date,
-          registration_deadline,
-          start_date,
-          end_date,
-          people_limit,
-          restrictions,
-          cost,
-          note,
-          status,
-          created_at,
-          updated_at
+          trips.id,
+          trips.country_code,
+          trips.country_name,
+          trips.city_name,
+          trips.description,
+          trips.trip_date,
+          trips.registration_deadline,
+          trips.start_date,
+          trips.end_date,
+          trips.people_limit,
+          trips.restrictions,
+          trips.cost,
+          trips.note,
+          trips.status,
+          trips.leader_account_id,
+          trips.leader_participant_id,
+          leader_accounts.full_name AS leader_name,
+          leader_accounts.phone AS leader_phone,
+          trips.created_at,
+          trips.updated_at
         FROM trips
-        WHERE id = $1
+        LEFT JOIN staff_accounts leader_accounts ON leader_accounts.id = trips.leader_account_id
+        WHERE trips.id = $1
       `,
       [id],
     );
@@ -1732,10 +2245,12 @@ async function createTripRecord(trip) {
           cost,
           note,
           status,
+          leader_account_id,
+          leader_participant_id,
           created_at,
           updated_at
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
       `,
       [
         trip.id,
@@ -1752,6 +2267,8 @@ async function createTripRecord(trip) {
         trip.cost,
         trip.note,
         trip.status,
+        trip.leaderAccountId || null,
+        trip.leaderParticipantId || null,
         trip.createdAt,
         trip.updatedAt,
       ],
@@ -1784,7 +2301,9 @@ async function updateTripRecord(trip) {
           cost = $12,
           note = $13,
           status = $14,
-          updated_at = $15
+          leader_account_id = $15,
+          leader_participant_id = $16,
+          updated_at = $17
         WHERE id = $1
       `,
       [
@@ -1802,6 +2321,8 @@ async function updateTripRecord(trip) {
         trip.cost,
         trip.note,
         trip.status,
+        trip.leaderAccountId || null,
+        trip.leaderParticipantId || null,
         trip.updatedAt,
       ],
     );
@@ -2005,6 +2526,23 @@ async function migrateDatabase() {
 
   await databasePool.query("ALTER TABLE access_roles ADD COLUMN IF NOT EXISTS permissions JSONB NOT NULL DEFAULT '[]'::jsonb");
   await databasePool.query("ALTER TABLE staff_accounts ADD COLUMN IF NOT EXISTS role_id TEXT REFERENCES access_roles(id) ON DELETE SET NULL");
+  await databasePool.query("ALTER TABLE trips ADD COLUMN IF NOT EXISTS leader_account_id TEXT REFERENCES staff_accounts(id) ON DELETE SET NULL");
+  await databasePool.query("ALTER TABLE trips ADD COLUMN IF NOT EXISTS leader_participant_id TEXT");
+
+  await databasePool.query(`
+    CREATE TABLE IF NOT EXISTS trip_reports (
+      id TEXT PRIMARY KEY,
+      trip_id TEXT NOT NULL UNIQUE REFERENCES trips(id) ON DELETE CASCADE,
+      leader_account_id TEXT REFERENCES staff_accounts(id) ON DELETE SET NULL,
+      summary TEXT NOT NULL DEFAULT '',
+      photos JSONB NOT NULL DEFAULT '[]'::jsonb,
+      participant_reviews JSONB NOT NULL DEFAULT '[]'::jsonb,
+      status TEXT NOT NULL DEFAULT 'draft',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      completed_at TIMESTAMPTZ
+    )
+  `);
 }
 
 function rowToTrip(row) {
@@ -2029,9 +2567,47 @@ function rowToTrip(row) {
     cost: row.cost,
     note: row.note || "",
     status: row.status,
+    leaderAccountId: row.leader_account_id || "",
+    leaderParticipantId: row.leader_participant_id || "",
+    leaderName: row.leader_name || "",
+    leaderPhone: row.leader_phone || "",
     createdAt: row.created_at ? new Date(row.created_at).toISOString() : "",
     updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : "",
   };
+}
+
+function rowToTripReport(row) {
+  return {
+    id: row.id,
+    tripId: row.trip_id,
+    leaderAccountId: row.leader_account_id || "",
+    summary: row.summary || "",
+    photos: Array.isArray(row.photos) ? row.photos : normalizeJsonArray(row.photos),
+    participantReviews: Array.isArray(row.participant_reviews)
+      ? row.participant_reviews
+      : normalizeJsonArray(row.participant_reviews),
+    status: row.status || "draft",
+    createdAt: row.created_at ? new Date(row.created_at).toISOString() : "",
+    updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : "",
+    completedAt: row.completed_at ? new Date(row.completed_at).toISOString() : "",
+  };
+}
+
+function normalizeJsonArray(value) {
+  if (Array.isArray(value)) {
+    return value;
+  }
+
+  if (typeof value === "string") {
+    try {
+      const parsed = JSON.parse(value);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  }
+
+  return [];
 }
 
 function rowToMinistry(row) {
@@ -2147,6 +2723,11 @@ function writeTripsFile(trips) {
 function writeAccessControlFile(accessControl) {
   mkdirSync(dirname(ACCESS_CONTROL_DATA_FILE), { recursive: true });
   writeFileSync(ACCESS_CONTROL_DATA_FILE, JSON.stringify(accessControl, null, 2), "utf8");
+}
+
+function writeReportsFile(reports) {
+  mkdirSync(dirname(REPORTS_DATA_FILE), { recursive: true });
+  writeFileSync(REPORTS_DATA_FILE, JSON.stringify(reports, null, 2), "utf8");
 }
 
 function loadEnvFile() {

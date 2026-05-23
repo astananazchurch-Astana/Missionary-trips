@@ -3,33 +3,46 @@ import {
   ArrowLeft,
   CalendarDays,
   ClipboardList,
+  Crown,
   Eye,
   FileText,
   Globe2,
   LayoutDashboard,
+  LockKeyhole,
   LogOut,
   MapPin,
   MoreVertical,
   Pencil,
+  Phone,
   Plus,
+  Settings,
+  ShieldCheck,
   Trash2,
+  UserRound,
   UsersRound,
   X,
 } from "lucide-react";
 import {
+  type AccessRole,
   type AdminMetric,
+  type AssignTripLeaderInput,
   type AuthUser,
   type CityOption,
   type CountryOption,
   type CreateTripInput,
+  type MinistryAccess,
   type Trip,
   type TripParticipant,
+  type TripReport,
+  assignTripLeader,
   createTrip,
   deleteTripParticipant,
   deleteTrip,
   fetchCities,
+  fetchAccessControlSummary,
   fetchCountries,
   fetchDashboardSummary,
+  fetchLeaderTrips,
   fetchTrip,
   hasAnyPermission,
   hasPermission,
@@ -39,6 +52,8 @@ import {
 } from "../shared/lib/auth";
 import { Logo } from "../shared/ui/Logo";
 import { AdminAccessPanel } from "./AdminAccessPanel";
+import { AdminReportsPanel } from "./AdminReportsPanel";
+import { TripReportEditor } from "./TripReportEditor";
 
 type AdminPanelProps = {
   homeHref: string;
@@ -53,7 +68,7 @@ type ParticipantMenuState = {
   left: number;
 };
 
-type AdminSection = "trips" | "accounts";
+type AdminSection = "trips" | "accounts" | "reports";
 
 type TripFormState = {
   countryCode: string;
@@ -68,6 +83,17 @@ type TripFormState = {
   note: string;
 };
 
+type LeaderModalState = {
+  trip: Trip;
+  participant: TripParticipant;
+};
+
+type LeaderFormState = {
+  password: string;
+  ministryId: string;
+  roleId: string;
+};
+
 const emptyForm: TripFormState = {
   countryCode: "",
   cityName: "",
@@ -79,6 +105,12 @@ const emptyForm: TripFormState = {
   restrictions: "",
   cost: "",
   note: "",
+};
+
+const emptyLeaderForm: LeaderFormState = {
+  password: "",
+  ministryId: "",
+  roleId: "",
 };
 
 const metricIcons: Record<AdminMetric["id"], typeof CalendarDays> = {
@@ -103,6 +135,8 @@ const accessSectionPermissions = [
   "roles:delete",
 ];
 
+const reportSectionPermissions = ["reports:view", "reports:create", "reports:update", "reports:delete"];
+
 export function AdminPanel({ homeHref, onHome, onLogout, user }: AdminPanelProps) {
   const canViewTrips = hasPermission(user, "trips:view");
   const canCreateTrip = hasPermission(user, "trips:create");
@@ -110,11 +144,19 @@ export function AdminPanel({ homeHref, onHome, onLogout, user }: AdminPanelProps
   const canDeleteTrip = hasPermission(user, "trips:delete");
   const canViewParticipants = canViewTrips && hasPermission(user, "participants:view");
   const canDeleteParticipants = canViewParticipants && hasPermission(user, "participants:delete");
+  const canViewReports = hasPermission(user, "reports:view");
+  const canCreateReports = hasPermission(user, "reports:create");
+  const canUpdateReports = hasPermission(user, "reports:update");
+  const canDeleteReports = hasPermission(user, "reports:delete");
+  const canUseLeaderTrips = user.role === "account" && hasAnyPermission(user, reportSectionPermissions);
+  const canOpenTripsSection = canViewTrips || canUseLeaderTrips;
+  const canAssignLeader = canViewParticipants && canUpdateTrip && hasPermission(user, "accounts:create");
+  const canViewTripParticipants = canViewParticipants || canUseLeaderTrips;
   const canManageAccess = hasAnyPermission(user, accessSectionPermissions);
   const canUseTripForm = canCreateTrip || canUpdateTrip;
-  const hasAnyAdminSection = canViewTrips || canManageAccess;
+  const hasAnyAdminSection = canOpenTripsSection || canManageAccess || canViewReports;
   const [activeSection, setActiveSection] = useState<AdminSection>(() =>
-    canViewTrips ? "trips" : "accounts",
+    canOpenTripsSection ? "trips" : canViewReports ? "reports" : "accounts",
   );
   const [trips, setTrips] = useState<Trip[]>([]);
   const [metrics, setMetrics] = useState<AdminMetric[]>([]);
@@ -132,27 +174,41 @@ export function AdminPanel({ homeHref, onHome, onLogout, user }: AdminPanelProps
   const [viewingParticipant, setViewingParticipant] = useState<TripParticipant | null>(null);
   const [participantToDelete, setParticipantToDelete] = useState<TripParticipant | null>(null);
   const [isDeletingParticipant, setIsDeletingParticipant] = useState(false);
+  const [leaderModal, setLeaderModal] = useState<LeaderModalState | null>(null);
+  const [leaderForm, setLeaderForm] = useState<LeaderFormState>(emptyLeaderForm);
+  const [leaderMinistries, setLeaderMinistries] = useState<MinistryAccess[]>([]);
+  const [leaderRoles, setLeaderRoles] = useState<AccessRole[]>([]);
+  const [leaderModalError, setLeaderModalError] = useState("");
+  const [isLeaderSaving, setIsLeaderSaving] = useState(false);
 
   const selectedCountry = useMemo(
     () => countries.find((country) => country.code === form.countryCode),
     [countries, form.countryCode],
   );
+  const availableLeaderRoles = useMemo(
+    () => leaderRoles.filter((role) => role.ministryId === leaderForm.ministryId),
+    [leaderForm.ministryId, leaderRoles],
+  );
 
   useEffect(() => {
-    if (activeSection === "trips" && !canViewTrips && canManageAccess) {
-      setActiveSection("accounts");
+    if (activeSection === "trips" && !canOpenTripsSection) {
+      setActiveSection(canViewReports ? "reports" : "accounts");
     }
 
     if (activeSection === "accounts" && !canManageAccess && canViewTrips) {
       setActiveSection("trips");
     }
-  }, [activeSection, canManageAccess, canViewTrips]);
+
+    if (activeSection === "reports" && !canViewReports) {
+      setActiveSection(canOpenTripsSection ? "trips" : "accounts");
+    }
+  }, [activeSection, canManageAccess, canOpenTripsSection, canViewReports, canViewTrips]);
 
   useEffect(() => {
     let isMounted = true;
 
     async function loadInitialData() {
-      if (!canViewTrips) {
+      if (!canOpenTripsSection) {
         setTrips([]);
         setMetrics([]);
         setCountries([]);
@@ -160,15 +216,25 @@ export function AdminPanel({ homeHref, onHome, onLogout, user }: AdminPanelProps
       }
 
       try {
-        const [summary, nextCountries] = await Promise.all([
-          fetchDashboardSummary(),
-          canUseTripForm ? fetchCountries() : Promise.resolve([]),
-        ]);
+        if (canViewTrips) {
+          const [summary, nextCountries] = await Promise.all([
+            fetchDashboardSummary(),
+            canUseTripForm ? fetchCountries() : Promise.resolve([]),
+          ]);
 
-        if (isMounted) {
-          setTrips(summary.trips);
-          setMetrics(summary.metrics);
-          setCountries(nextCountries);
+          if (isMounted) {
+            setTrips(summary.trips);
+            setMetrics(summary.metrics);
+            setCountries(nextCountries);
+          }
+        } else {
+          const leaderTrips = await fetchLeaderTrips();
+
+          if (isMounted) {
+            setTrips(leaderTrips);
+            setMetrics(buildMetrics(leaderTrips));
+            setCountries([]);
+          }
         }
       } catch (requestError) {
         if (isUnauthorizedError(requestError)) {
@@ -194,7 +260,7 @@ export function AdminPanel({ homeHref, onHome, onLogout, user }: AdminPanelProps
     return () => {
       isMounted = false;
     };
-  }, [canUseTripForm, canViewTrips, onLogout]);
+  }, [canOpenTripsSection, canUseTripForm, canViewTrips, onLogout]);
 
   useEffect(() => {
     let isMounted = true;
@@ -418,7 +484,7 @@ export function AdminPanel({ homeHref, onHome, onLogout, user }: AdminPanelProps
   };
 
   const openTrip = async (tripId: string) => {
-    if (!canViewTrips) {
+    if (!canOpenTripsSection) {
       setError("Недостаточно прав для просмотра поездок.");
       return;
     }
@@ -427,7 +493,18 @@ export function AdminPanel({ homeHref, onHome, onLogout, user }: AdminPanelProps
     setIsLoadingTrip(true);
 
     try {
-      setSelectedTrip(await fetchTrip(tripId));
+      if (canViewTrips) {
+        setSelectedTrip(await fetchTrip(tripId));
+      } else {
+        const leaderTrip = trips.find((trip) => trip.id === tripId);
+
+        if (!leaderTrip) {
+          setError("Поездка не найдена среди назначенных.");
+          return;
+        }
+
+        setSelectedTrip(leaderTrip);
+      }
     } catch (requestError) {
       if (isUnauthorizedError(requestError)) {
         onLogout();
@@ -445,6 +522,134 @@ export function AdminPanel({ homeHref, onHome, onLogout, user }: AdminPanelProps
     }
   };
 
+  const openLeaderModal = async (participant: TripParticipant) => {
+    if (!selectedTrip || !canAssignLeader) {
+      return;
+    }
+
+    setLeaderModal({ trip: selectedTrip, participant });
+    setLeaderForm(emptyLeaderForm);
+    setLeaderModalError("");
+
+    try {
+      const summary = await fetchAccessControlSummary();
+      const firstMinistry = summary.ministries[0];
+      const firstRole = firstMinistry
+        ? summary.roles.find((role) => role.ministryId === firstMinistry.id)
+        : undefined;
+
+      setLeaderMinistries(summary.ministries);
+      setLeaderRoles(summary.roles);
+      setLeaderForm({
+        password: "",
+        ministryId: firstMinistry?.id || "",
+        roleId: firstRole?.id || "",
+      });
+    } catch (requestError) {
+      if (isUnauthorizedError(requestError)) {
+        onLogout();
+        return;
+      }
+
+      setLeaderModalError("Не удалось загрузить служения и роли для лидера.");
+    }
+  };
+
+  const closeLeaderModal = () => {
+    setLeaderModal(null);
+    setLeaderForm(emptyLeaderForm);
+    setLeaderModalError("");
+  };
+
+  const updateLeaderForm = (field: keyof LeaderFormState, value: string) => {
+    setLeaderForm((currentForm) => {
+      const nextForm = {
+        ...currentForm,
+        [field]: value,
+      };
+
+      if (field === "ministryId") {
+        nextForm.roleId = leaderRoles.find((role) => role.ministryId === value)?.id || "";
+      }
+
+      return nextForm;
+    });
+  };
+
+  const handleAssignLeader = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+
+    if (!leaderModal) {
+      return;
+    }
+
+    if (!leaderForm.password.trim() || !leaderForm.ministryId || !leaderForm.roleId) {
+      setLeaderModalError("Укажите пароль, служение и роль лидера.");
+      return;
+    }
+
+    setIsLeaderSaving(true);
+    setLeaderModalError("");
+
+    const payload: AssignTripLeaderInput = {
+      participantId: leaderModal.participant.id,
+      password: leaderForm.password,
+      ministryId: leaderForm.ministryId,
+      roleId: leaderForm.roleId,
+    };
+
+    try {
+      const result = await assignTripLeader(leaderModal.trip.id, payload);
+
+      setSelectedTrip(result.trip);
+      setTrips((currentTrips) =>
+        currentTrips.map((trip) => (trip.id === result.trip.id ? { ...trip, ...result.trip } : trip)),
+      );
+      closeLeaderModal();
+    } catch (requestError) {
+      if (isUnauthorizedError(requestError)) {
+        onLogout();
+        return;
+      }
+
+      if (isForbiddenError(requestError)) {
+        setLeaderModalError("Недостаточно прав для назначения лидера.");
+        return;
+      }
+
+      setLeaderModalError(requestError instanceof Error && requestError.message
+        ? requestError.message
+        : "Не удалось назначить лидера поездки.");
+    } finally {
+      setIsLeaderSaving(false);
+    }
+  };
+
+  const handleReportSaved = (report: TripReport, isCompleted: boolean) => {
+    const nextStatus = isCompleted ? "Завершена" : selectedTrip?.status;
+
+    setSelectedTrip((currentTrip) =>
+      currentTrip
+        ? {
+            ...currentTrip,
+            status: nextStatus || currentTrip.status,
+            report,
+          }
+        : currentTrip,
+    );
+    setTrips((currentTrips) =>
+      currentTrips.map((trip) =>
+        trip.id === report.tripId
+          ? {
+              ...trip,
+              status: nextStatus || trip.status,
+              report,
+            }
+          : trip,
+      ),
+    );
+  };
+
   const updateForm = (field: keyof TripFormState, value: string) => {
     setForm((currentForm) => ({
       ...currentForm,
@@ -454,7 +659,7 @@ export function AdminPanel({ homeHref, onHome, onLogout, user }: AdminPanelProps
   };
 
   const openTripsSection = () => {
-    if (!canViewTrips) {
+    if (!canOpenTripsSection) {
       return;
     }
 
@@ -472,6 +677,21 @@ export function AdminPanel({ homeHref, onHome, onLogout, user }: AdminPanelProps
     setEditingTrip(null);
     setViewingParticipant(null);
     setParticipantToDelete(null);
+    setLeaderModal(null);
+  };
+
+  const openReportsSection = () => {
+    if (!canViewReports) {
+      return;
+    }
+
+    setActiveSection("reports");
+    setSelectedTrip(null);
+    setIsCreateOpen(false);
+    setEditingTrip(null);
+    setViewingParticipant(null);
+    setParticipantToDelete(null);
+    setLeaderModal(null);
   };
 
   return (
@@ -493,7 +713,7 @@ export function AdminPanel({ homeHref, onHome, onLogout, user }: AdminPanelProps
         </a>
 
         <nav className="admin-menu" aria-label="Админ навигация">
-          {canViewTrips ? (
+          {canOpenTripsSection ? (
             <button
               className={`admin-menu__item${activeSection === "trips" ? " admin-menu__item--active" : ""}`}
               type="button"
@@ -501,6 +721,16 @@ export function AdminPanel({ homeHref, onHome, onLogout, user }: AdminPanelProps
             >
               <LayoutDashboard size={19} aria-hidden="true" />
               Поездки
+            </button>
+          ) : null}
+          {canViewReports ? (
+            <button
+              className={`admin-menu__item${activeSection === "reports" ? " admin-menu__item--active" : ""}`}
+              type="button"
+              onClick={openReportsSection}
+            >
+              <FileText size={19} aria-hidden="true" />
+              Отчеты
             </button>
           ) : null}
           {canManageAccess ? (
@@ -531,12 +761,14 @@ export function AdminPanel({ homeHref, onHome, onLogout, user }: AdminPanelProps
           </section>
         ) : activeSection === "accounts" && canManageAccess ? (
           <AdminAccessPanel onLogout={onLogout} user={user} />
-        ) : canViewTrips ? (
+        ) : activeSection === "reports" && canViewReports ? (
+          <AdminReportsPanel canDelete={canDeleteReports} onLogout={onLogout} />
+        ) : canOpenTripsSection ? (
           <>
             <header className="admin-topbar">
               <div>
                 <span className="admin-kicker">Панель администратора</span>
-                <h1>Миссионерские поездки</h1>
+                <h1>{canViewTrips ? "Миссионерские поездки" : "Мои поездки"}</h1>
               </div>
               {canCreateTrip ? (
                 <button className="button button--primary admin-create" type="button" onClick={openCreateModal}>
@@ -558,8 +790,15 @@ export function AdminPanel({ homeHref, onHome, onLogout, user }: AdminPanelProps
                 isDeleting={isDeleting}
                 canEdit={canUpdateTrip}
                 canDelete={canDeleteTrip}
-                canViewParticipants={canViewParticipants}
+                canViewParticipants={canViewTripParticipants}
                 canDeleteParticipants={canDeleteParticipants}
+                canAssignLeader={canAssignLeader}
+                canFillReport={canUseLeaderTrips && selectedTrip.leaderAccountId === user.id}
+                canCreateReport={canCreateReports}
+                canUpdateReport={canUpdateReports}
+                onLogout={onLogout}
+                onRequestLeader={openLeaderModal}
+                onReportSaved={handleReportSaved}
                 onBack={handleBackToTrips}
                 onDelete={() => handleDeleteTrip(selectedTrip)}
                 onEdit={() => openEditModal(selectedTrip)}
@@ -763,6 +1002,20 @@ export function AdminPanel({ homeHref, onHome, onLogout, user }: AdminPanelProps
           onConfirm={handleDeleteParticipant}
         />
       ) : null}
+
+      {leaderModal ? (
+        <LeaderAccountModal
+          form={leaderForm}
+          participant={leaderModal.participant}
+          ministries={leaderMinistries}
+          roles={availableLeaderRoles}
+          error={leaderModalError}
+          isSaving={isLeaderSaving}
+          onSubmit={handleAssignLeader}
+          onClose={closeLeaderModal}
+          onChange={updateLeaderForm}
+        />
+      ) : null}
     </div>
   );
 }
@@ -856,6 +1109,13 @@ type TripDetailsProps = {
   canDelete: boolean;
   canViewParticipants: boolean;
   canDeleteParticipants: boolean;
+  canAssignLeader: boolean;
+  canFillReport: boolean;
+  canCreateReport: boolean;
+  canUpdateReport: boolean;
+  onLogout: () => void;
+  onRequestLeader: (participant: TripParticipant) => void;
+  onReportSaved: (report: TripReport, isCompleted: boolean) => void;
   onBack: () => void;
   onDelete: () => void;
   onEdit: () => void;
@@ -870,6 +1130,13 @@ function TripDetails({
   canDelete,
   canViewParticipants,
   canDeleteParticipants,
+  canAssignLeader,
+  canFillReport,
+  canCreateReport,
+  canUpdateReport,
+  onLogout,
+  onRequestLeader,
+  onReportSaved,
   onBack,
   onDelete,
   onEdit,
@@ -992,6 +1259,7 @@ function TripDetails({
               <span role="columnheader">Телефон</span>
               <span role="columnheader">Пожертвование</span>
               <span role="columnheader">Статус</span>
+              <span className="participant-leader-cell participant-leader-cell--head" role="columnheader" aria-label="Лидер" />
               <span className="participant-actions participant-actions--head" role="columnheader" aria-label="Действия" />
             </div>
             {participants.map((participant) => (
@@ -1002,6 +1270,24 @@ function TripDetails({
                 <span role="cell">{participant.phone || "—"}</span>
                 <span role="cell">{participant.donation || "—"}</span>
                 <span role="cell">{participant.status}</span>
+                <div className="participant-leader-cell" role="cell">
+                  {canAssignLeader ? (
+                    <button
+                      className={`leader-crown${trip.leaderParticipantId === participant.id ? " leader-crown--active" : ""}`}
+                      type="button"
+                      aria-label={`Назначить лидером ${participant.fullName}`}
+                      onClick={() => onRequestLeader(participant)}
+                    >
+                      <Crown size={18} aria-hidden="true" />
+                    </button>
+                  ) : trip.leaderParticipantId === participant.id ? (
+                    <span className="leader-crown leader-crown--active leader-crown--readonly">
+                      <Crown size={18} aria-hidden="true" />
+                    </span>
+                  ) : (
+                    <span aria-hidden="true">—</span>
+                  )}
+                </div>
                 <div className="participant-actions" role="cell">
                   <button
                     className="participant-actions__trigger"
@@ -1075,7 +1361,144 @@ function TripDetails({
         )}
       </div>
       ) : null}
+
+      {canFillReport ? (
+        <TripReportEditor
+          trip={trip}
+          canCreate={canCreateReport}
+          canUpdate={canUpdateReport}
+          onLogout={onLogout}
+          onReportSaved={onReportSaved}
+        />
+      ) : null}
     </section>
+  );
+}
+
+type LeaderAccountModalProps = {
+  form: LeaderFormState;
+  participant: TripParticipant;
+  ministries: MinistryAccess[];
+  roles: AccessRole[];
+  error: string;
+  isSaving: boolean;
+  onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+  onClose: () => void;
+  onChange: (field: keyof LeaderFormState, value: string) => void;
+};
+
+function LeaderAccountModal({
+  form,
+  participant,
+  ministries,
+  roles,
+  error,
+  isSaving,
+  onSubmit,
+  onClose,
+  onChange,
+}: LeaderAccountModalProps) {
+  return (
+    <div className="modal-backdrop" role="presentation">
+      <section className="trip-modal access-modal" role="dialog" aria-modal="true" aria-label="Лидер поездки">
+        <div className="trip-modal__header">
+          <div>
+            <span className="admin-kicker">Лидер поездки</span>
+            <h2>Создать аккаунт лидера</h2>
+          </div>
+          <button className="icon-button" type="button" aria-label="Закрыть" onClick={onClose}>
+            <X size={21} aria-hidden="true" />
+          </button>
+        </div>
+
+        <form className="trip-form" onSubmit={onSubmit}>
+          <label className="form-field">
+            <span>ФИО</span>
+            <div className="input-shell">
+              <UserRound size={19} aria-hidden="true" />
+              <input disabled value={participant.fullName} />
+            </div>
+          </label>
+
+          <label className="form-field">
+            <span>Телефон</span>
+            <div className="input-shell">
+              <Phone size={19} aria-hidden="true" />
+              <input disabled value={participant.phone || ""} />
+            </div>
+          </label>
+
+          <label className="form-field">
+            <span>Пароль</span>
+            <div className="input-shell">
+              <LockKeyhole size={19} aria-hidden="true" />
+              <input
+                required
+                type="password"
+                value={form.password}
+                onChange={(event) => onChange("password", event.target.value)}
+                placeholder="Минимум 6 символов"
+              />
+            </div>
+          </label>
+
+          <label className="form-field">
+            <span>Служение</span>
+            <div className="input-shell input-shell--select">
+              <Settings size={19} aria-hidden="true" />
+              <select
+                required
+                value={form.ministryId}
+                onChange={(event) => onChange("ministryId", event.target.value)}
+              >
+                <option value="">Выберите служение</option>
+                {ministries.map((ministry) => (
+                  <option key={ministry.id} value={ministry.id}>
+                    {ministry.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </label>
+
+          <label className="form-field form-field--wide">
+            <span>Роль</span>
+            <div className="input-shell input-shell--select">
+              <ShieldCheck size={19} aria-hidden="true" />
+              <select
+                required
+                disabled={!form.ministryId || !roles.length}
+                value={form.roleId}
+                onChange={(event) => onChange("roleId", event.target.value)}
+              >
+                <option value="">{form.ministryId ? "Выберите роль" : "Сначала выберите служение"}</option>
+                {roles.map((role) => (
+                  <option key={role.id} value={role.id}>
+                    {role.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </label>
+
+          {error ? (
+            <p className="admin-error form-field--wide" role="alert">
+              {error}
+            </p>
+          ) : null}
+
+          <div className="trip-form__actions form-field--wide">
+            <button className="button button--secondary button--neutral" type="button" onClick={onClose}>
+              Отмена
+            </button>
+            <button className="button button--primary" type="submit" disabled={isSaving}>
+              <Crown size={19} aria-hidden="true" />
+              {isSaving ? "Назначаем..." : "Назначить лидером"}
+            </button>
+          </div>
+        </form>
+      </section>
+    </div>
   );
 }
 

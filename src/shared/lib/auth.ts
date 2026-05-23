@@ -69,6 +69,28 @@ export type StaffAccount = {
   updatedAt?: string;
 };
 
+export type TripReportReview = {
+  participantId: string;
+  fullName: string;
+  text: string;
+};
+
+export type TripReport = {
+  id: string;
+  tripId: string;
+  leaderAccountId: string;
+  summary: string;
+  photos: string[];
+  participantReviews: TripReportReview[];
+  status: "draft" | "completed";
+  createdAt?: string;
+  updatedAt?: string;
+  completedAt?: string;
+  leaderName?: string;
+  leaderPhone?: string;
+  trip?: Trip | null;
+};
+
 export type Trip = {
   id: string;
   countryCode: string;
@@ -84,10 +106,15 @@ export type Trip = {
   cost: string;
   note?: string;
   status: string;
+  leaderAccountId?: string;
+  leaderParticipantId?: string;
+  leaderName?: string;
+  leaderPhone?: string;
   createdAt?: string;
   participantsCount?: number;
   availableSpots?: number;
   participants?: TripParticipant[];
+  report?: TripReport | null;
 };
 
 export type TripParticipant = {
@@ -181,6 +208,22 @@ export type CreateStaffAccountInput = {
 
 export type UpdateStaffAccountInput = Omit<CreateStaffAccountInput, "password"> & {
   password?: string;
+};
+
+export type AssignTripLeaderInput = {
+  participantId: string;
+  password: string;
+  ministryId: string;
+  roleId: string;
+};
+
+export type SaveTripReportInput = {
+  summary: string;
+  photos: string[];
+  participantReviews: Array<{
+    participantId: string;
+    text: string;
+  }>;
 };
 
 type LoginResponse = {
@@ -379,10 +422,31 @@ export async function deleteStaffAccount(id: string) {
   });
 }
 
+export async function assignTripLeader(tripId: string, input: AssignTripLeaderInput) {
+  const response = await apiFetch<{ trip: Trip; account: StaffAccount }>(`/api/admin/trips/${tripId}/leader`, {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+
+  return response;
+}
+
 export async function fetchTrips() {
   const response = await apiFetch<{ trips: Trip[] }>("/api/admin/trips");
 
   return response.trips;
+}
+
+export async function fetchLeaderTrips() {
+  const response = await apiFetch<{ trips: Trip[] }>("/api/admin/leader/trips");
+
+  return response.trips;
+}
+
+export async function fetchReports() {
+  const response = await apiFetch<{ reports: TripReport[] }>("/api/admin/reports");
+
+  return response.reports;
 }
 
 export async function fetchPublicTrips() {
@@ -412,6 +476,12 @@ export async function fetchTrip(id: string) {
   return response.trip;
 }
 
+export async function fetchTripReport(tripId: string) {
+  const response = await apiFetch<{ report: TripReport | null }>(`/api/admin/trips/${tripId}/report`);
+
+  return response.report;
+}
+
 export async function createTrip(input: CreateTripInput) {
   const response = await apiFetch<{ trip: Trip }>("/api/admin/trips", {
     method: "POST",
@@ -438,6 +508,30 @@ export async function deleteTrip(id: string) {
 
 export async function deleteTripParticipant(tripId: string, participantId: string) {
   await apiFetch<{ ok: boolean }>(`/api/admin/trips/${tripId}/participants/${participantId}`, {
+    method: "DELETE",
+  });
+}
+
+export async function saveTripReport(tripId: string, input: SaveTripReportInput) {
+  const response = await apiFetch<{ report: TripReport }>(`/api/admin/trips/${tripId}/report`, {
+    method: "PUT",
+    body: JSON.stringify(input),
+  });
+
+  return response.report;
+}
+
+export async function completeTripReport(tripId: string, input: SaveTripReportInput) {
+  const response = await apiFetch<{ report: TripReport }>(`/api/admin/trips/${tripId}/report/complete`, {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+
+  return response.report;
+}
+
+export async function deleteTripReport(id: string) {
+  await apiFetch<{ ok: boolean }>(`/api/admin/reports/${id}`, {
     method: "DELETE",
   });
 }
