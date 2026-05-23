@@ -1,5 +1,6 @@
 const LEGACY_ADMIN_AUTH_KEY = "missionary-trips-admin-auth";
 const ACCESS_TOKEN_KEY = "missionary-trips-admin-access-token";
+const CURRENT_USER_KEY = "missionary-trips-admin-current-user";
 
 export type CountryOption = {
   code: string;
@@ -14,6 +15,58 @@ export type AdminMetric = {
   id: "trips" | "requests" | "members" | "reports";
   label: string;
   value: string;
+};
+
+export type AccessPermission = {
+  id: string;
+  label: string;
+  description: string;
+  group: string;
+  resource: string;
+  resourceLabel: string;
+  action: "view" | "create" | "update" | "delete";
+  actionLabel: string;
+};
+
+export type AuthUser = {
+  id?: string;
+  username: string;
+  fullName?: string;
+  phone?: string;
+  role: "admin" | "account";
+  ministryId?: string;
+  roleId?: string;
+  permissions: string[];
+};
+
+export type MinistryAccess = {
+  id: string;
+  name: string;
+  description: string;
+  createdAt?: string;
+  updatedAt?: string;
+};
+
+export type AccessRole = {
+  id: string;
+  name: string;
+  ministryId: string;
+  ministryName?: string;
+  permissions: string[];
+  createdAt?: string;
+  updatedAt?: string;
+};
+
+export type StaffAccount = {
+  id: string;
+  fullName: string;
+  phone: string;
+  ministryId: string;
+  ministryName?: string;
+  roleId: string;
+  roleName?: string;
+  createdAt?: string;
+  updatedAt?: string;
 };
 
 export type Trip = {
@@ -100,8 +153,43 @@ export type DashboardSummary = {
   trips: Trip[];
 };
 
+export type AccessControlSummary = {
+  accounts: StaffAccount[];
+  ministries: MinistryAccess[];
+  roles: AccessRole[];
+  accessOptions: AccessPermission[];
+};
+
+export type CreateMinistryInput = {
+  name: string;
+  description: string;
+};
+
+export type CreateAccessRoleInput = {
+  name: string;
+  ministryId: string;
+  permissions: string[];
+};
+
+export type CreateStaffAccountInput = {
+  fullName: string;
+  phone: string;
+  password: string;
+  ministryId: string;
+  roleId: string;
+};
+
+export type UpdateStaffAccountInput = Omit<CreateStaffAccountInput, "password"> & {
+  password?: string;
+};
+
 type LoginResponse = {
   accessToken: string;
+  user: AuthUser;
+};
+
+type MeResponse = {
+  user: AuthUser;
 };
 
 type SignInResult = {
@@ -126,6 +214,34 @@ export function hasAccessToken() {
   return Boolean(getAccessToken());
 }
 
+export function getCurrentUser() {
+  const value = window.sessionStorage.getItem(CURRENT_USER_KEY);
+
+  if (!value) {
+    return null;
+  }
+
+  try {
+    const user = JSON.parse(value) as AuthUser;
+
+    if (!user || !Array.isArray(user.permissions)) {
+      return null;
+    }
+
+    return user;
+  } catch {
+    return null;
+  }
+}
+
+export function hasPermission(user: AuthUser | null | undefined, permission: string) {
+  return user?.role === "admin" || Boolean(user?.permissions.includes(permission));
+}
+
+export function hasAnyPermission(user: AuthUser | null | undefined, permissions: string[]) {
+  return user?.role === "admin" || permissions.some((permission) => hasPermission(user, permission));
+}
+
 export async function signInAdmin(username: string, password: string): Promise<SignInResult> {
   try {
     const response = await apiFetch<LoginResponse>("/api/auth/login", {
@@ -134,6 +250,7 @@ export async function signInAdmin(username: string, password: string): Promise<S
     });
 
     window.sessionStorage.setItem(ACCESS_TOKEN_KEY, response.accessToken);
+    setCurrentUser(response.user);
 
     return { ok: true };
   } catch (error) {
@@ -147,15 +264,16 @@ export async function signInAdmin(username: string, password: string): Promise<S
 
 export async function verifyAdminSession() {
   if (!getAccessToken()) {
-    return false;
+    return null;
   }
 
   try {
-    await apiFetch("/api/auth/me");
-    return true;
+    const response = await apiFetch<MeResponse>("/api/auth/me");
+    setCurrentUser(response.user);
+    return response.user;
   } catch {
     signOutAdmin();
-    return false;
+    return null;
   }
 }
 
@@ -181,6 +299,84 @@ export async function fetchDashboardSummary() {
   const response = await apiFetch<DashboardSummary>("/api/admin/summary");
 
   return response;
+}
+
+export async function fetchAccessControlSummary() {
+  const response = await apiFetch<AccessControlSummary>("/api/admin/access-control");
+
+  return response;
+}
+
+export async function createMinistry(input: CreateMinistryInput) {
+  const response = await apiFetch<{ ministry: MinistryAccess }>("/api/admin/ministries", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+
+  return response.ministry;
+}
+
+export async function updateMinistry(id: string, input: CreateMinistryInput) {
+  const response = await apiFetch<{ ministry: MinistryAccess }>(`/api/admin/ministries/${id}`, {
+    method: "PUT",
+    body: JSON.stringify(input),
+  });
+
+  return response.ministry;
+}
+
+export async function deleteMinistry(id: string) {
+  await apiFetch<{ ok: boolean }>(`/api/admin/ministries/${id}`, {
+    method: "DELETE",
+  });
+}
+
+export async function createAccessRole(input: CreateAccessRoleInput) {
+  const response = await apiFetch<{ role: AccessRole }>("/api/admin/roles", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+
+  return response.role;
+}
+
+export async function updateAccessRole(id: string, input: CreateAccessRoleInput) {
+  const response = await apiFetch<{ role: AccessRole }>(`/api/admin/roles/${id}`, {
+    method: "PUT",
+    body: JSON.stringify(input),
+  });
+
+  return response.role;
+}
+
+export async function deleteAccessRole(id: string) {
+  await apiFetch<{ ok: boolean }>(`/api/admin/roles/${id}`, {
+    method: "DELETE",
+  });
+}
+
+export async function createStaffAccount(input: CreateStaffAccountInput) {
+  const response = await apiFetch<{ account: StaffAccount }>("/api/admin/accounts", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+
+  return response.account;
+}
+
+export async function updateStaffAccount(id: string, input: UpdateStaffAccountInput) {
+  const response = await apiFetch<{ account: StaffAccount }>(`/api/admin/accounts/${id}`, {
+    method: "PUT",
+    body: JSON.stringify(input),
+  });
+
+  return response.account;
+}
+
+export async function deleteStaffAccount(id: string) {
+  await apiFetch<{ ok: boolean }>(`/api/admin/accounts/${id}`, {
+    method: "DELETE",
+  });
 }
 
 export async function fetchTrips() {
@@ -248,10 +444,15 @@ export async function deleteTripParticipant(tripId: string, participantId: strin
 
 export function signOutAdmin() {
   window.sessionStorage.removeItem(ACCESS_TOKEN_KEY);
+  window.sessionStorage.removeItem(CURRENT_USER_KEY);
 }
 
 export function isUnauthorizedError(error: unknown) {
   return error instanceof ApiError && error.status === 401;
+}
+
+export function isForbiddenError(error: unknown) {
+  return error instanceof ApiError && error.status === 403;
 }
 
 async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> {
@@ -290,6 +491,10 @@ async function getErrorMessage(response: Response) {
 
 function getAccessToken() {
   return window.sessionStorage.getItem(ACCESS_TOKEN_KEY);
+}
+
+function setCurrentUser(user: AuthUser) {
+  window.sessionStorage.setItem(CURRENT_USER_KEY, JSON.stringify(user));
 }
 
 function getApiBaseUrl() {

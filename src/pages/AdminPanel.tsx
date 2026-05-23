@@ -12,13 +12,13 @@ import {
   MoreVertical,
   Pencil,
   Plus,
-  Settings,
   Trash2,
   UsersRound,
   X,
 } from "lucide-react";
 import {
   type AdminMetric,
+  type AuthUser,
   type CityOption,
   type CountryOption,
   type CreateTripInput,
@@ -31,15 +31,20 @@ import {
   fetchCountries,
   fetchDashboardSummary,
   fetchTrip,
+  hasAnyPermission,
+  hasPermission,
+  isForbiddenError,
   isUnauthorizedError,
   updateTrip,
 } from "../shared/lib/auth";
 import { Logo } from "../shared/ui/Logo";
+import { AdminAccessPanel } from "./AdminAccessPanel";
 
 type AdminPanelProps = {
   homeHref: string;
   onHome: () => void;
   onLogout: () => void;
+  user: AuthUser;
 };
 
 type ParticipantMenuState = {
@@ -47,6 +52,8 @@ type ParticipantMenuState = {
   top: number;
   left: number;
 };
+
+type AdminSection = "trips" | "accounts";
 
 type TripFormState = {
   countryCode: string;
@@ -81,7 +88,34 @@ const metricIcons: Record<AdminMetric["id"], typeof CalendarDays> = {
   reports: FileText,
 };
 
-export function AdminPanel({ homeHref, onHome, onLogout }: AdminPanelProps) {
+const accessSectionPermissions = [
+  "accounts:view",
+  "accounts:create",
+  "accounts:update",
+  "accounts:delete",
+  "ministries:view",
+  "ministries:create",
+  "ministries:update",
+  "ministries:delete",
+  "roles:view",
+  "roles:create",
+  "roles:update",
+  "roles:delete",
+];
+
+export function AdminPanel({ homeHref, onHome, onLogout, user }: AdminPanelProps) {
+  const canViewTrips = hasPermission(user, "trips:view");
+  const canCreateTrip = hasPermission(user, "trips:create");
+  const canUpdateTrip = hasPermission(user, "trips:update");
+  const canDeleteTrip = hasPermission(user, "trips:delete");
+  const canViewParticipants = canViewTrips && hasPermission(user, "participants:view");
+  const canDeleteParticipants = canViewParticipants && hasPermission(user, "participants:delete");
+  const canManageAccess = hasAnyPermission(user, accessSectionPermissions);
+  const canUseTripForm = canCreateTrip || canUpdateTrip;
+  const hasAnyAdminSection = canViewTrips || canManageAccess;
+  const [activeSection, setActiveSection] = useState<AdminSection>(() =>
+    canViewTrips ? "trips" : "accounts",
+  );
   const [trips, setTrips] = useState<Trip[]>([]);
   const [metrics, setMetrics] = useState<AdminMetric[]>([]);
   const [countries, setCountries] = useState<CountryOption[]>([]);
@@ -105,11 +139,31 @@ export function AdminPanel({ homeHref, onHome, onLogout }: AdminPanelProps) {
   );
 
   useEffect(() => {
+    if (activeSection === "trips" && !canViewTrips && canManageAccess) {
+      setActiveSection("accounts");
+    }
+
+    if (activeSection === "accounts" && !canManageAccess && canViewTrips) {
+      setActiveSection("trips");
+    }
+  }, [activeSection, canManageAccess, canViewTrips]);
+
+  useEffect(() => {
     let isMounted = true;
 
     async function loadInitialData() {
+      if (!canViewTrips) {
+        setTrips([]);
+        setMetrics([]);
+        setCountries([]);
+        return;
+      }
+
       try {
-        const [summary, nextCountries] = await Promise.all([fetchDashboardSummary(), fetchCountries()]);
+        const [summary, nextCountries] = await Promise.all([
+          fetchDashboardSummary(),
+          canUseTripForm ? fetchCountries() : Promise.resolve([]),
+        ]);
 
         if (isMounted) {
           setTrips(summary.trips);
@@ -119,6 +173,13 @@ export function AdminPanel({ homeHref, onHome, onLogout }: AdminPanelProps) {
       } catch (requestError) {
         if (isUnauthorizedError(requestError)) {
           onLogout();
+          return;
+        }
+
+        if (isForbiddenError(requestError)) {
+          if (isMounted) {
+            setError("Недостаточно прав для просмотра поездок.");
+          }
           return;
         }
 
@@ -133,12 +194,12 @@ export function AdminPanel({ homeHref, onHome, onLogout }: AdminPanelProps) {
     return () => {
       isMounted = false;
     };
-  }, [onLogout]);
+  }, [canUseTripForm, canViewTrips, onLogout]);
 
   useEffect(() => {
     let isMounted = true;
 
-    if (!form.countryCode) {
+    if (!canUseTripForm || !form.countryCode) {
       setCities([]);
       return () => {
         isMounted = false;
@@ -155,6 +216,11 @@ export function AdminPanel({ homeHref, onHome, onLogout }: AdminPanelProps) {
         .catch((requestError) => {
           if (isUnauthorizedError(requestError)) {
             onLogout();
+            return;
+          }
+
+          if (isForbiddenError(requestError) && isMounted) {
+            setModalError("Недостаточно прав для выбора города.");
           }
         });
     }, 220);
@@ -163,11 +229,16 @@ export function AdminPanel({ homeHref, onHome, onLogout }: AdminPanelProps) {
       isMounted = false;
       window.clearTimeout(timer);
     };
-  }, [form.cityName, form.countryCode, onLogout]);
+  }, [canUseTripForm, form.cityName, form.countryCode, onLogout]);
 
   const handleSaveTrip = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setModalError("");
+
+    if (editingTrip ? !canUpdateTrip : !canCreateTrip) {
+      setModalError("Недостаточно прав для сохранения поездки.");
+      return;
+    }
 
     const validationError = validateTripForm(form);
 
@@ -216,6 +287,11 @@ export function AdminPanel({ homeHref, onHome, onLogout }: AdminPanelProps) {
         return;
       }
 
+      if (isForbiddenError(requestError)) {
+        setModalError("Недостаточно прав для сохранения поездки.");
+        return;
+      }
+
       setModalError("Не удалось сохранить поездку. Проверьте заполнение полей.");
     } finally {
       setIsSaving(false);
@@ -223,6 +299,10 @@ export function AdminPanel({ homeHref, onHome, onLogout }: AdminPanelProps) {
   };
 
   const openCreateModal = () => {
+    if (!canCreateTrip) {
+      return;
+    }
+
     setEditingTrip(null);
     setForm(emptyForm);
     setCities([]);
@@ -231,6 +311,10 @@ export function AdminPanel({ homeHref, onHome, onLogout }: AdminPanelProps) {
   };
 
   const openEditModal = (trip: Trip) => {
+    if (!canUpdateTrip) {
+      return;
+    }
+
     setEditingTrip(trip);
     setForm(tripToForm(trip));
     setModalError("");
@@ -246,6 +330,11 @@ export function AdminPanel({ homeHref, onHome, onLogout }: AdminPanelProps) {
   };
 
   const handleDeleteTrip = async (trip: Trip) => {
+    if (!canDeleteTrip) {
+      setError("Недостаточно прав для удаления поездки.");
+      return;
+    }
+
     const shouldDelete = window.confirm(`Удалить поездку в город ${trip.cityName}?`);
 
     if (!shouldDelete) {
@@ -269,6 +358,11 @@ export function AdminPanel({ homeHref, onHome, onLogout }: AdminPanelProps) {
         return;
       }
 
+      if (isForbiddenError(requestError)) {
+        setError("Недостаточно прав для удаления поездки.");
+        return;
+      }
+
       setError("Не удалось удалить поездку");
     } finally {
       setIsDeleting(false);
@@ -283,6 +377,12 @@ export function AdminPanel({ homeHref, onHome, onLogout }: AdminPanelProps) {
 
   const handleDeleteParticipant = async () => {
     if (!selectedTrip || !participantToDelete) {
+      return;
+    }
+
+    if (!canDeleteParticipants) {
+      setError("Недостаточно прав для удаления участника.");
+      setParticipantToDelete(null);
       return;
     }
 
@@ -306,6 +406,11 @@ export function AdminPanel({ homeHref, onHome, onLogout }: AdminPanelProps) {
         return;
       }
 
+      if (isForbiddenError(requestError)) {
+        setError("Недостаточно прав для удаления участника.");
+        return;
+      }
+
       setError("Не удалось удалить участника");
     } finally {
       setIsDeletingParticipant(false);
@@ -313,6 +418,11 @@ export function AdminPanel({ homeHref, onHome, onLogout }: AdminPanelProps) {
   };
 
   const openTrip = async (tripId: string) => {
+    if (!canViewTrips) {
+      setError("Недостаточно прав для просмотра поездок.");
+      return;
+    }
+
     setError("");
     setIsLoadingTrip(true);
 
@@ -321,6 +431,11 @@ export function AdminPanel({ homeHref, onHome, onLogout }: AdminPanelProps) {
     } catch (requestError) {
       if (isUnauthorizedError(requestError)) {
         onLogout();
+        return;
+      }
+
+      if (isForbiddenError(requestError)) {
+        setError("Недостаточно прав для открытия поездки.");
         return;
       }
 
@@ -336,6 +451,27 @@ export function AdminPanel({ homeHref, onHome, onLogout }: AdminPanelProps) {
       [field]: value,
       ...(field === "countryCode" ? { cityName: "" } : {}),
     }));
+  };
+
+  const openTripsSection = () => {
+    if (!canViewTrips) {
+      return;
+    }
+
+    setActiveSection("trips");
+  };
+
+  const openAccountsSection = () => {
+    if (!canManageAccess) {
+      return;
+    }
+
+    setActiveSection("accounts");
+    setSelectedTrip(null);
+    setIsCreateOpen(false);
+    setEditingTrip(null);
+    setViewingParticipant(null);
+    setParticipantToDelete(null);
   };
 
   return (
@@ -357,18 +493,26 @@ export function AdminPanel({ homeHref, onHome, onLogout }: AdminPanelProps) {
         </a>
 
         <nav className="admin-menu" aria-label="Админ навигация">
-          <button className="admin-menu__item admin-menu__item--active" type="button">
-            <LayoutDashboard size={19} aria-hidden="true" />
-            Поездки
-          </button>
-          <button className="admin-menu__item" type="button">
-            <UsersRound size={19} aria-hidden="true" />
-            Участники
-          </button>
-          <button className="admin-menu__item" type="button">
-            <Settings size={19} aria-hidden="true" />
-            Настройки
-          </button>
+          {canViewTrips ? (
+            <button
+              className={`admin-menu__item${activeSection === "trips" ? " admin-menu__item--active" : ""}`}
+              type="button"
+              onClick={openTripsSection}
+            >
+              <LayoutDashboard size={19} aria-hidden="true" />
+              Поездки
+            </button>
+          ) : null}
+          {canManageAccess ? (
+            <button
+              className={`admin-menu__item${activeSection === "accounts" ? " admin-menu__item--active" : ""}`}
+              type="button"
+              onClick={openAccountsSection}
+            >
+              <UsersRound size={19} aria-hidden="true" />
+              Аккаунты
+            </button>
+          ) : null}
         </nav>
 
         <button className="admin-logout" type="button" onClick={onLogout}>
@@ -378,38 +522,59 @@ export function AdminPanel({ homeHref, onHome, onLogout }: AdminPanelProps) {
       </aside>
 
       <main className="admin-main">
-        <header className="admin-topbar">
-          <div>
-            <span className="admin-kicker">Панель администратора</span>
-            <h1>Миссионерские поездки</h1>
-          </div>
-          <button className="button button--primary admin-create" type="button" onClick={openCreateModal}>
-            <Plus size={19} aria-hidden="true" />
-            Новая поездка
-          </button>
-        </header>
-
-        {error ? (
-          <p className="admin-error" role="alert">
-            {error}
-          </p>
-        ) : null}
-
-        {selectedTrip ? (
-          <TripDetails
-            trip={selectedTrip}
-            isDeleting={isDeleting}
-            onBack={handleBackToTrips}
-            onDelete={() => handleDeleteTrip(selectedTrip)}
-            onEdit={() => openEditModal(selectedTrip)}
-            onViewParticipant={setViewingParticipant}
-            onRequestDeleteParticipant={setParticipantToDelete}
-          />
-        ) : (
+        {!hasAnyAdminSection ? (
+          <section className="admin-panel">
+            <div className="empty-state empty-state--compact">
+              <h3>Нет доступных разделов</h3>
+              <p>Администратор пока не выдал права для этой учетной записи.</p>
+            </div>
+          </section>
+        ) : activeSection === "accounts" && canManageAccess ? (
+          <AdminAccessPanel onLogout={onLogout} user={user} />
+        ) : canViewTrips ? (
           <>
-            <MetricsGrid metrics={metrics} />
-            <TripsTable trips={trips} isLoadingTrip={isLoadingTrip} onOpenTrip={openTrip} />
+            <header className="admin-topbar">
+              <div>
+                <span className="admin-kicker">Панель администратора</span>
+                <h1>Миссионерские поездки</h1>
+              </div>
+              {canCreateTrip ? (
+                <button className="button button--primary admin-create" type="button" onClick={openCreateModal}>
+                  <Plus size={19} aria-hidden="true" />
+                  Новая поездка
+                </button>
+              ) : null}
+            </header>
+
+            {error ? (
+              <p className="admin-error" role="alert">
+                {error}
+              </p>
+            ) : null}
+
+            {selectedTrip ? (
+              <TripDetails
+                trip={selectedTrip}
+                isDeleting={isDeleting}
+                canEdit={canUpdateTrip}
+                canDelete={canDeleteTrip}
+                canViewParticipants={canViewParticipants}
+                canDeleteParticipants={canDeleteParticipants}
+                onBack={handleBackToTrips}
+                onDelete={() => handleDeleteTrip(selectedTrip)}
+                onEdit={() => openEditModal(selectedTrip)}
+                onViewParticipant={setViewingParticipant}
+                onRequestDeleteParticipant={setParticipantToDelete}
+              />
+            ) : (
+              <>
+                <MetricsGrid metrics={metrics} />
+                <TripsTable trips={trips} isLoadingTrip={isLoadingTrip} onOpenTrip={openTrip} />
+              </>
+            )}
           </>
+        ) : (
+          <AdminAccessPanel onLogout={onLogout} user={user} />
         )}
       </main>
 
@@ -590,7 +755,7 @@ export function AdminPanel({ homeHref, onHome, onLogout }: AdminPanelProps) {
         />
       ) : null}
 
-      {participantToDelete ? (
+      {participantToDelete && canDeleteParticipants ? (
         <DeleteParticipantModal
           participant={participantToDelete}
           isDeleting={isDeletingParticipant}
@@ -687,6 +852,10 @@ function TripsTable({ trips, isLoadingTrip, onOpenTrip }: TripsTableProps) {
 type TripDetailsProps = {
   trip: Trip;
   isDeleting: boolean;
+  canEdit: boolean;
+  canDelete: boolean;
+  canViewParticipants: boolean;
+  canDeleteParticipants: boolean;
   onBack: () => void;
   onDelete: () => void;
   onEdit: () => void;
@@ -697,6 +866,10 @@ type TripDetailsProps = {
 function TripDetails({
   trip,
   isDeleting,
+  canEdit,
+  canDelete,
+  canViewParticipants,
+  canDeleteParticipants,
   onBack,
   onDelete,
   onEdit,
@@ -738,14 +911,18 @@ function TripDetails({
         </div>
         <div className="trip-detail__actions">
           <span className="status-pill">{trip.status}</span>
-          <button className="button button--secondary button--neutral" type="button" onClick={onEdit}>
-            <Pencil size={18} aria-hidden="true" />
-            Редактировать
-          </button>
-          <button className="button button--danger" type="button" disabled={isDeleting} onClick={onDelete}>
-            <Trash2 size={18} aria-hidden="true" />
-            {isDeleting ? "Удаляем..." : "Удалить"}
-          </button>
+          {canEdit ? (
+            <button className="button button--secondary button--neutral" type="button" onClick={onEdit}>
+              <Pencil size={18} aria-hidden="true" />
+              Редактировать
+            </button>
+          ) : null}
+          {canDelete ? (
+            <button className="button button--danger" type="button" disabled={isDeleting} onClick={onDelete}>
+              <Trash2 size={18} aria-hidden="true" />
+              {isDeleting ? "Удаляем..." : "Удалить"}
+            </button>
+          ) : null}
         </div>
       </div>
 
@@ -792,6 +969,7 @@ function TripDetails({
         </div>
       ) : null}
 
+      {canViewParticipants ? (
       <div className="trip-detail__section">
         <div className="participants-header">
           <div>
@@ -834,7 +1012,7 @@ function TripDetails({
                     onClick={(event) => {
                       const buttonRect = event.currentTarget.getBoundingClientRect();
                       const menuWidth = 150;
-                      const menuHeight = 92;
+                      const menuHeight = canDeleteParticipants ? 92 : 48;
                       const maxLeft = Math.max(window.innerWidth - menuWidth - 12, 12);
                       const left = Math.min(Math.max(buttonRect.right - menuWidth, 12), maxLeft);
                       const top =
@@ -869,18 +1047,20 @@ function TripDetails({
                         <Eye size={16} aria-hidden="true" />
                         Смотреть
                       </button>
-                      <button
-                        className="participant-actions__danger"
-                        type="button"
-                        role="menuitem"
-                        onClick={() => {
-                          setOpenParticipantMenu(null);
-                          onRequestDeleteParticipant(participant);
-                        }}
-                      >
-                        <Trash2 size={16} aria-hidden="true" />
-                        Удалить
-                      </button>
+                      {canDeleteParticipants ? (
+                        <button
+                          className="participant-actions__danger"
+                          type="button"
+                          role="menuitem"
+                          onClick={() => {
+                            setOpenParticipantMenu(null);
+                            onRequestDeleteParticipant(participant);
+                          }}
+                        >
+                          <Trash2 size={16} aria-hidden="true" />
+                          Удалить
+                        </button>
+                      ) : null}
                     </div>
                   ) : null}
                 </div>
@@ -894,6 +1074,7 @@ function TripDetails({
           </div>
         )}
       </div>
+      ) : null}
     </section>
   );
 }

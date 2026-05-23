@@ -63,7 +63,7 @@ export function LoginPage({ homeHref, onBack, onSuccess }: LoginPageProps) {
           </div>
 
           <label className="form-field">
-            <span>Логин</span>
+            <span>Логин или телефон</span>
             <div className="input-shell">
               <UserRound size={19} aria-hidden="true" />
               <input
@@ -71,7 +71,7 @@ export function LoginPage({ homeHref, onBack, onSuccess }: LoginPageProps) {
                 autoFocus
                 value={username}
                 onChange={(event) => setUsername(event.target.value)}
-                placeholder="Введите логин"
+                placeholder="Введите логин или телефон"
               />
             </div>
           </label>

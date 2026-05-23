@@ -10,7 +10,14 @@ import { TripsSection } from "../sections/TripsSection";
 import { AdminPanel } from "../pages/AdminPanel";
 import { ApplyPage } from "../pages/ApplyPage";
 import { LoginPage } from "../pages/LoginPage";
-import { clearLegacyAuthData, hasAccessToken, signOutAdmin, verifyAdminSession } from "../shared/lib/auth";
+import {
+  type AuthUser,
+  clearLegacyAuthData,
+  getCurrentUser,
+  hasAccessToken,
+  signOutAdmin,
+  verifyAdminSession,
+} from "../shared/lib/auth";
 import { type AppRoute, appPath, getRouteFromLocation } from "../shared/lib/routes";
 import { useScrollReveal } from "../shared/hooks/useScrollReveal";
 
@@ -41,6 +48,7 @@ function LandingPage({ loginHref, onLoginClick }: LandingPageProps) {
 export function App() {
   const [route, setRoute] = useState<AppRoute>(() => getRouteFromLocation());
   const [isAuthenticated, setIsAuthenticated] = useState(() => hasAccessToken());
+  const [currentUser, setCurrentUser] = useState<AuthUser | null>(() => getCurrentUser());
   const [isCheckingSession, setIsCheckingSession] = useState(() => hasAccessToken());
 
   const navigateTo = useCallback((nextRoute: AppRoute) => {
@@ -53,11 +61,13 @@ export function App() {
   const goLogin = useCallback(() => navigateTo("/login"), [navigateTo]);
   const handleLoginSuccess = useCallback(() => {
     setIsAuthenticated(true);
+    setCurrentUser(getCurrentUser());
     navigateTo("/admin");
   }, [navigateTo]);
   const handleLogout = useCallback(() => {
     signOutAdmin();
     setIsAuthenticated(false);
+    setCurrentUser(null);
     navigateTo("/login");
   }, [navigateTo]);
 
@@ -67,6 +77,7 @@ export function App() {
     const handlePopState = () => {
       setRoute(getRouteFromLocation());
       setIsAuthenticated(hasAccessToken());
+      setCurrentUser(getCurrentUser());
     };
 
     window.addEventListener("popstate", handlePopState);
@@ -80,18 +91,20 @@ export function App() {
     async function checkSession() {
       if (!hasAccessToken()) {
         setIsAuthenticated(false);
+        setCurrentUser(null);
         setIsCheckingSession(false);
         return;
       }
 
       setIsCheckingSession(true);
-      const isValidSession = await verifyAdminSession();
+      const user = await verifyAdminSession();
 
       if (!isMounted) {
         return;
       }
 
-      setIsAuthenticated(isValidSession);
+      setCurrentUser(user);
+      setIsAuthenticated(Boolean(user));
       setIsCheckingSession(false);
     }
 
@@ -118,11 +131,11 @@ export function App() {
       return <AuthLoadingPage />;
     }
 
-    if (!isAuthenticated) {
+    if (!isAuthenticated || !currentUser) {
       return <LoginPage homeHref={homeHref} onBack={goHome} onSuccess={handleLoginSuccess} />;
     }
 
-    return <AdminPanel homeHref={homeHref} onHome={goHome} onLogout={handleLogout} />;
+    return <AdminPanel homeHref={homeHref} onHome={goHome} onLogout={handleLogout} user={currentUser} />;
   }
 
   return <LandingPage loginHref={loginHref} onLoginClick={goLogin} />;

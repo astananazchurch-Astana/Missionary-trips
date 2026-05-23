@@ -1,5 +1,6 @@
 import {
   createHmac,
+  randomBytes,
   randomUUID,
   scrypt as scryptCallback,
   timingSafeEqual,
@@ -31,6 +32,89 @@ const DEFAULT_TRIPS_DATA_FILE = process.env.VERCEL
   ? "/tmp/missionary-trips.json"
   : "server/data/trips.json";
 const TRIPS_DATA_FILE = resolve(process.cwd(), process.env.TRIPS_DATA_FILE || DEFAULT_TRIPS_DATA_FILE);
+const DEFAULT_ACCESS_CONTROL_DATA_FILE = process.env.VERCEL
+  ? "/tmp/missionary-access-control.json"
+  : "server/data/access-control.json";
+const ACCESS_CONTROL_DATA_FILE = resolve(
+  process.cwd(),
+  process.env.ACCESS_CONTROL_DATA_FILE || DEFAULT_ACCESS_CONTROL_DATA_FILE,
+);
+const ACCESS_ACTIONS = [
+  { id: "view", label: "Просмотр" },
+  { id: "create", label: "Создать" },
+  { id: "update", label: "Изменить" },
+  { id: "delete", label: "Удалить" },
+];
+const ACCESS_MODULES = [
+  {
+    group: "Основное",
+    resource: "dashboard",
+    label: "Панель администратора",
+    actions: ["view"],
+  },
+  {
+    group: "Поездки",
+    resource: "trips",
+    label: "Управление поездками",
+    actions: ["view", "create", "update", "delete"],
+  },
+  {
+    group: "Поездки",
+    resource: "participants",
+    label: "Заявки участников",
+    actions: ["view", "update", "delete"],
+  },
+  {
+    group: "Доступы",
+    resource: "accounts",
+    label: "Аккаунты",
+    actions: ["view", "create", "update", "delete"],
+  },
+  {
+    group: "Доступы",
+    resource: "ministries",
+    label: "Служения",
+    actions: ["view", "create", "update", "delete"],
+  },
+  {
+    group: "Доступы",
+    resource: "roles",
+    label: "Роли",
+    actions: ["view", "create", "update", "delete"],
+  },
+  {
+    group: "Сайт",
+    resource: "landing",
+    label: "Контент лендинга",
+    actions: ["view", "update"],
+  },
+];
+const ACCESS_PERMISSIONS = ACCESS_MODULES.flatMap((module) =>
+  module.actions.map((action) => {
+    const actionMeta = ACCESS_ACTIONS.find((item) => item.id === action);
+
+    return {
+      id: `${module.resource}:${action}`,
+      label: module.label,
+      description: `${actionMeta?.label || action} - ${module.label.toLowerCase()}`,
+      group: module.group,
+      resource: module.resource,
+      resourceLabel: module.label,
+      action,
+      actionLabel: actionMeta?.label || action,
+    };
+  }),
+);
+const LEGACY_PERMISSION_MAP = {
+  "trips:manage": ["trips:create", "trips:update", "trips:delete"],
+  "participants:manage": ["participants:view", "participants:update", "participants:delete"],
+  "accounts:manage": ["accounts:view", "accounts:create", "accounts:update", "accounts:delete"],
+  "roles:manage": ["roles:view", "roles:create", "roles:update", "roles:delete"],
+};
+const ACCESS_PERMISSION_IDS = new Set(ACCESS_PERMISSIONS.map((permission) => permission.id));
+const ACCESS_CONTROL_ROUTE_PERMISSIONS = ACCESS_PERMISSIONS
+  .filter((permission) => ["accounts", "ministries", "roles"].includes(permission.resource))
+  .map((permission) => permission.id);
 const DATABASE_URL =
   process.env.DATABASE_URL ||
   process.env.POSTGRES_URL ||
@@ -121,10 +205,9 @@ export default async function handleRequest(request, response) {
     }
 
     if (request.method === "GET" && url.pathname === "/api/auth/me") {
-      const admin = authenticateAdmin(request);
+      const admin = await authorizeRequest(request, response, origin);
 
       if (!admin) {
-        sendJson(response, 401, { message: "Unauthorized." }, origin);
         return;
       }
 
@@ -133,8 +216,7 @@ export default async function handleRequest(request, response) {
     }
 
     if (request.method === "GET" && url.pathname === "/api/locations/countries") {
-      if (!authenticateAdmin(request)) {
-        sendJson(response, 401, { message: "Unauthorized." }, origin);
+      if (!(await authorizeRequest(request, response, origin))) {
         return;
       }
 
@@ -143,8 +225,7 @@ export default async function handleRequest(request, response) {
     }
 
     if (request.method === "GET" && url.pathname === "/api/locations/cities") {
-      if (!authenticateAdmin(request)) {
-        sendJson(response, 401, { message: "Unauthorized." }, origin);
+      if (!(await authorizeRequest(request, response, origin))) {
         return;
       }
 
@@ -156,8 +237,7 @@ export default async function handleRequest(request, response) {
     }
 
     if (request.method === "GET" && url.pathname === "/api/admin/summary") {
-      if (!authenticateAdmin(request)) {
-        sendJson(response, 401, { message: "Unauthorized." }, origin);
+      if (!(await authorizeRequest(request, response, origin, "trips:view"))) {
         return;
       }
 
@@ -177,8 +257,7 @@ export default async function handleRequest(request, response) {
     }
 
     if (request.method === "GET" && url.pathname === "/api/admin/trips") {
-      if (!authenticateAdmin(request)) {
-        sendJson(response, 401, { message: "Unauthorized." }, origin);
+      if (!(await authorizeRequest(request, response, origin, "trips:view"))) {
         return;
       }
 
@@ -187,8 +266,7 @@ export default async function handleRequest(request, response) {
     }
 
     if (request.method === "POST" && url.pathname === "/api/admin/trips") {
-      if (!authenticateAdmin(request)) {
-        sendJson(response, 401, { message: "Unauthorized." }, origin);
+      if (!(await authorizeRequest(request, response, origin, "trips:create"))) {
         return;
       }
 
@@ -200,14 +278,205 @@ export default async function handleRequest(request, response) {
       return;
     }
 
+    if (request.method === "GET" && url.pathname === "/api/admin/access-control") {
+      const admin = await authorizeRequest(request, response, origin, ACCESS_CONTROL_ROUTE_PERMISSIONS);
+
+      if (!admin) {
+        return;
+      }
+
+      sendJson(response, 200, await getAccessControlSummary(admin), origin);
+      return;
+    }
+
+    if (request.method === "GET" && url.pathname === "/api/admin/ministries") {
+      if (!(await authorizeRequest(request, response, origin, "ministries:view"))) {
+        return;
+      }
+
+      sendJson(response, 200, { ministries: await readMinistries() }, origin);
+      return;
+    }
+
+    if (request.method === "POST" && url.pathname === "/api/admin/ministries") {
+      if (!(await authorizeRequest(request, response, origin, "ministries:create"))) {
+        return;
+      }
+
+      const ministry = buildMinistry(await readJsonBody(request));
+      await createMinistryRecord(ministry);
+
+      sendJson(response, 201, { ministry }, origin);
+      return;
+    }
+
+    if (request.method === "GET" && url.pathname === "/api/admin/roles") {
+      if (!(await authorizeRequest(request, response, origin, "roles:view"))) {
+        return;
+      }
+
+      sendJson(response, 200, { roles: await readAccessRoles() }, origin);
+      return;
+    }
+
+    if (request.method === "POST" && url.pathname === "/api/admin/roles") {
+      if (!(await authorizeRequest(request, response, origin, "roles:create"))) {
+        return;
+      }
+
+      const role = buildAccessRole(await readJsonBody(request), await readMinistries());
+      await createAccessRoleRecord(role);
+
+      sendJson(response, 201, { role: await getAccessRoleRecord(role.id) }, origin);
+      return;
+    }
+
+    if (request.method === "GET" && url.pathname === "/api/admin/accounts") {
+      if (!(await authorizeRequest(request, response, origin, "accounts:view"))) {
+        return;
+      }
+
+      sendJson(response, 200, { accounts: await readStaffAccounts() }, origin);
+      return;
+    }
+
+    if (request.method === "POST" && url.pathname === "/api/admin/accounts") {
+      if (!(await authorizeRequest(request, response, origin, "accounts:create"))) {
+        return;
+      }
+
+      const account = await buildStaffAccount(await readJsonBody(request), {
+        ministries: await readMinistries(),
+        roles: await readAccessRoles(),
+      });
+      await createStaffAccountRecord(account);
+
+      sendJson(response, 201, { account: await getStaffAccountRecord(account.id) }, origin);
+      return;
+    }
+
     const adminTripParticipantMatch = url.pathname.match(
       /^\/api\/admin\/trips\/([^/]+)\/participants\/([^/]+)$/,
     );
     const tripMatch = url.pathname.match(/^\/api\/admin\/trips\/([^/]+)$/);
+    const ministryMatch = url.pathname.match(/^\/api\/admin\/ministries\/([^/]+)$/);
+    const accessRoleMatch = url.pathname.match(/^\/api\/admin\/roles\/([^/]+)$/);
+    const staffAccountMatch = url.pathname.match(/^\/api\/admin\/accounts\/([^/]+)$/);
+
+    if (request.method === "PUT" && ministryMatch) {
+      if (!(await authorizeRequest(request, response, origin, "ministries:update"))) {
+        return;
+      }
+
+      const existingMinistry = await getMinistryRecord(ministryMatch[1]);
+
+      if (!existingMinistry) {
+        sendJson(response, 404, { message: "Ministry not found." }, origin);
+        return;
+      }
+
+      const ministry = buildMinistry(await readJsonBody(request), existingMinistry);
+      await updateMinistryRecord(ministry);
+
+      sendJson(response, 200, { ministry }, origin);
+      return;
+    }
+
+    if (request.method === "DELETE" && ministryMatch) {
+      if (!(await authorizeRequest(request, response, origin, "ministries:delete"))) {
+        return;
+      }
+
+      const isDeleted = await deleteMinistryRecord(ministryMatch[1]);
+
+      if (!isDeleted) {
+        sendJson(response, 404, { message: "Ministry not found." }, origin);
+        return;
+      }
+
+      sendJson(response, 200, { ok: true }, origin);
+      return;
+    }
+
+    if (request.method === "PUT" && accessRoleMatch) {
+      if (!(await authorizeRequest(request, response, origin, "roles:update"))) {
+        return;
+      }
+
+      const existingRole = await getAccessRoleRecord(accessRoleMatch[1]);
+
+      if (!existingRole) {
+        sendJson(response, 404, { message: "Role not found." }, origin);
+        return;
+      }
+
+      const role = buildAccessRole(await readJsonBody(request), await readMinistries(), existingRole);
+      await updateAccessRoleRecord(role);
+
+      sendJson(response, 200, { role: await getAccessRoleRecord(role.id) }, origin);
+      return;
+    }
+
+    if (request.method === "DELETE" && accessRoleMatch) {
+      if (!(await authorizeRequest(request, response, origin, "roles:delete"))) {
+        return;
+      }
+
+      const isDeleted = await deleteAccessRoleRecord(accessRoleMatch[1]);
+
+      if (!isDeleted) {
+        sendJson(response, 404, { message: "Role not found." }, origin);
+        return;
+      }
+
+      sendJson(response, 200, { ok: true }, origin);
+      return;
+    }
+
+    if (request.method === "PUT" && staffAccountMatch) {
+      if (!(await authorizeRequest(request, response, origin, "accounts:update"))) {
+        return;
+      }
+
+      const existingAccount = await getRawStaffAccountRecord(staffAccountMatch[1]);
+
+      if (!existingAccount) {
+        sendJson(response, 404, { message: "Account not found." }, origin);
+        return;
+      }
+
+      const account = await buildStaffAccount(
+        await readJsonBody(request),
+        {
+          ministries: await readMinistries(),
+          roles: await readAccessRoles(),
+        },
+        existingAccount,
+      );
+      await updateStaffAccountRecord(account);
+
+      sendJson(response, 200, { account: await getStaffAccountRecord(account.id) }, origin);
+      return;
+    }
+
+    if (request.method === "DELETE" && staffAccountMatch) {
+      if (!(await authorizeRequest(request, response, origin, "accounts:delete"))) {
+        return;
+      }
+
+      const isDeleted = await deleteStaffAccountRecord(staffAccountMatch[1]);
+
+      if (!isDeleted) {
+        sendJson(response, 404, { message: "Account not found." }, origin);
+        return;
+      }
+
+      sendJson(response, 200, { ok: true }, origin);
+      return;
+    }
 
     if (request.method === "DELETE" && adminTripParticipantMatch) {
-      if (!authenticateAdmin(request)) {
-        sendJson(response, 401, { message: "Unauthorized." }, origin);
+      if (!(await authorizeRequest(request, response, origin, "participants:delete"))) {
         return;
       }
 
@@ -226,8 +495,9 @@ export default async function handleRequest(request, response) {
     }
 
     if (request.method === "GET" && tripMatch) {
-      if (!authenticateAdmin(request)) {
-        sendJson(response, 401, { message: "Unauthorized." }, origin);
+      const admin = await authorizeRequest(request, response, origin, "trips:view");
+
+      if (!admin) {
         return;
       }
 
@@ -238,13 +508,12 @@ export default async function handleRequest(request, response) {
         return;
       }
 
-      sendJson(response, 200, { trip }, origin);
+      sendJson(response, 200, { trip: stripParticipantsWithoutPermission(trip, admin) }, origin);
       return;
     }
 
     if (request.method === "PUT" && tripMatch) {
-      if (!authenticateAdmin(request)) {
-        sendJson(response, 401, { message: "Unauthorized." }, origin);
+      if (!(await authorizeRequest(request, response, origin, "trips:update"))) {
         return;
       }
 
@@ -265,8 +534,7 @@ export default async function handleRequest(request, response) {
     }
 
     if (request.method === "DELETE" && tripMatch) {
-      if (!authenticateAdmin(request)) {
-        sendJson(response, 401, { message: "Unauthorized." }, origin);
+      if (!(await authorizeRequest(request, response, origin, "trips:delete"))) {
         return;
       }
 
@@ -321,11 +589,51 @@ async function handleLogin(request, response, origin) {
     username === ADMIN_USERNAME && password.length > 0 && (await verifyPassword(password));
 
   if (!isValidAdmin) {
-    sendJson(response, 401, { message: "Invalid username or password." }, origin);
+    const account = await authenticateStaffAccount(username, password);
+
+    if (!account) {
+      sendJson(response, 401, { message: "Invalid username or password." }, origin);
+      return;
+    }
+
+    const token = createAccessToken({
+      sub: account.id,
+      role: "account",
+      accountId: account.id,
+      phone: account.phone,
+      ministryId: account.ministryId,
+      roleId: account.roleId,
+      permissions: account.permissions,
+    });
+
+    sendJson(
+      response,
+      200,
+      {
+        accessToken: token,
+        tokenType: "Bearer",
+        expiresIn: ACCESS_TOKEN_TTL_SECONDS,
+        user: {
+          id: account.id,
+          username: account.phone,
+          fullName: account.fullName,
+          phone: account.phone,
+          role: "account",
+          roleId: account.roleId,
+          ministryId: account.ministryId,
+          permissions: account.permissions,
+        },
+      },
+      origin,
+    );
     return;
   }
 
-  const token = createAccessToken({ sub: ADMIN_USERNAME, role: "admin" });
+  const token = createAccessToken({
+    sub: ADMIN_USERNAME,
+    role: "admin",
+    permissions: ACCESS_PERMISSIONS.map((permission) => permission.id),
+  });
 
   sendJson(
     response,
@@ -334,7 +642,11 @@ async function handleLogin(request, response, origin) {
       accessToken: token,
       tokenType: "Bearer",
       expiresIn: ACCESS_TOKEN_TTL_SECONDS,
-      user: { username: ADMIN_USERNAME, role: "admin" },
+      user: {
+        username: ADMIN_USERNAME,
+        role: "admin",
+        permissions: ACCESS_PERMISSIONS.map((permission) => permission.id),
+      },
     },
     origin,
   );
@@ -482,6 +794,127 @@ function requiredEmail(value) {
   return email;
 }
 
+function buildMinistry(body, existingMinistry = null) {
+  return {
+    id: existingMinistry?.id || randomUUID(),
+    name: requiredText(body.name, "name", 120),
+    description: optionalText(body.description, 800),
+    createdAt: existingMinistry?.createdAt || new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+function buildAccessRole(body, ministries, existingRole = null) {
+  const ministryId = requiredText(body.ministryId, "ministryId", 80);
+
+  if (!ministries.some((ministry) => ministry.id === ministryId)) {
+    throw httpError(400, "Unknown ministry.");
+  }
+
+  const permissions = Array.isArray(body.permissions)
+    ? [...new Set(body.permissions.filter((permission) => typeof permission === "string"))]
+    : [];
+
+  if (!permissions.length) {
+    throw httpError(400, "permissions are required.");
+  }
+
+  for (const permission of permissions) {
+    if (!ACCESS_PERMISSION_IDS.has(permission)) {
+      throw httpError(400, `Unknown permission: ${permission}.`);
+    }
+  }
+
+  for (const permission of Array.from(permissions)) {
+    const [resource, action] = permission.split(":");
+    const viewPermission = `${resource}:view`;
+
+    if (action !== "view" && ACCESS_PERMISSION_IDS.has(viewPermission)) {
+      permissions.push(viewPermission);
+    }
+  }
+
+  return {
+    id: existingRole?.id || randomUUID(),
+    name: requiredText(body.name, "name", 120),
+    ministryId,
+    permissions: [...new Set(permissions)],
+    createdAt: existingRole?.createdAt || new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+async function buildStaffAccount(body, { ministries, roles }, existingAccount = null) {
+  const ministryId = requiredText(body.ministryId, "ministryId", 80);
+  const roleId = requiredText(body.roleId, "roleId", 80);
+  const role = roles.find((item) => item.id === roleId);
+
+  if (!ministries.some((ministry) => ministry.id === ministryId)) {
+    throw httpError(400, "Unknown ministry.");
+  }
+
+  if (!role) {
+    throw httpError(400, "Unknown role.");
+  }
+
+  if (role.ministryId !== ministryId) {
+    throw httpError(400, "role must belong to selected ministry.");
+  }
+
+  const phone = normalizeAccountPhone(requiredText(body.phone, "phone", 32));
+  const password = typeof body.password === "string" ? body.password : "";
+  let passwordSalt = existingAccount?.passwordSalt || "";
+  let passwordHash = existingAccount?.passwordHash || "";
+
+  if (!existingAccount || password) {
+    if (password.length < 6 || password.length > 100) {
+      throw httpError(400, "password must contain from 6 to 100 characters.");
+    }
+
+    const passwordData = await hashPassword(password);
+    passwordSalt = passwordData.salt;
+    passwordHash = passwordData.hash;
+  }
+
+  return {
+    id: existingAccount?.id || randomUUID(),
+    fullName: requiredText(body.fullName, "fullName", 180),
+    phone,
+    passwordSalt,
+    passwordHash,
+    ministryId,
+    roleId,
+    createdAt: existingAccount?.createdAt || new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+function normalizeAccountPhone(value) {
+  const text = value.trim();
+  const digits = text.replace(/\D/g, "");
+  let normalizedDigits = digits;
+
+  if (!digits) {
+    throw httpError(400, "Телефон должен содержать цифры.");
+  }
+
+  if (digits.length === 10) {
+    normalizedDigits = `7${digits}`;
+  } else if (digits.length === 11 && digits[0] === "8") {
+    normalizedDigits = `7${digits.slice(1)}`;
+  }
+
+  if (normalizedDigits.length === 11 && normalizedDigits[0] === "7") {
+    return `+7 (${normalizedDigits.slice(1, 4)}) ${normalizedDigits.slice(4, 7)}-${normalizedDigits.slice(7, 9)}-${normalizedDigits.slice(9, 11)}`;
+  }
+
+  if (digits.length < 4 || digits.length > 15) {
+    throw httpError(400, "Телефон должен содержать от 4 до 15 цифр.");
+  }
+
+  return digits;
+}
+
 function getDashboardMetrics(trips) {
   const peopleLimit = trips.reduce((total, trip) => total + Number(trip.peopleLimit || 0), 0);
   const participantsCount = trips.reduce(
@@ -605,6 +1038,482 @@ function getCountryName(countryCode, fallbackName) {
     return countryDisplayNames.of(countryCode) || fallbackName;
   } catch {
     return fallbackName;
+  }
+}
+
+async function getAccessControlSummary(user) {
+  const [ministries, roles, accounts] = await Promise.all([
+    readMinistries(),
+    readAccessRoles(),
+    readStaffAccounts(),
+  ]);
+  const canUseAccounts = canUseAccessResource(user, "accounts");
+  const canUseMinistries = canUseAccessResource(user, "ministries");
+  const canUseRoles = canUseAccessResource(user, "roles");
+
+  return {
+    accounts: canUseAccounts ? accounts : [],
+    ministries: canUseMinistries || canUseAccounts || canUseRoles ? ministries : [],
+    roles: canUseRoles || canUseAccounts ? roles : [],
+    accessOptions: canUseRoles || canUseAccounts ? ACCESS_PERMISSIONS : [],
+  };
+}
+
+function canUseAccessResource(user, resource) {
+  return hasAnyUserPermission(
+    user,
+    ACCESS_PERMISSIONS.filter((permission) => permission.resource === resource).map((permission) => permission.id),
+  );
+}
+
+async function readAccessControl() {
+  if (!existsSync(ACCESS_CONTROL_DATA_FILE)) {
+    return { ministries: [], roles: [], accounts: [] };
+  }
+
+  const content = readFileSync(ACCESS_CONTROL_DATA_FILE, "utf8");
+  const parsed = JSON.parse(content);
+
+  return {
+    ministries: Array.isArray(parsed.ministries) ? parsed.ministries : [],
+    roles: Array.isArray(parsed.roles) ? parsed.roles : [],
+    accounts: Array.isArray(parsed.accounts) ? parsed.accounts : [],
+  };
+}
+
+async function readMinistries() {
+  if (databasePool) {
+    await ensureDatabase();
+    const result = await databasePool.query(`
+      SELECT id, name, description, created_at, updated_at
+      FROM ministries
+      ORDER BY created_at DESC
+    `);
+
+    return result.rows.map(rowToMinistry);
+  }
+
+  const accessControl = await readAccessControl();
+  return accessControl.ministries;
+}
+
+async function getMinistryRecord(id) {
+  if (databasePool) {
+    await ensureDatabase();
+    const result = await databasePool.query(
+      `
+        SELECT id, name, description, created_at, updated_at
+        FROM ministries
+        WHERE id = $1
+      `,
+      [id],
+    );
+
+    return result.rows[0] ? rowToMinistry(result.rows[0]) : null;
+  }
+
+  return (await readMinistries()).find((ministry) => ministry.id === id) || null;
+}
+
+async function createMinistryRecord(ministry) {
+  if (databasePool) {
+    await ensureDatabase();
+    await databasePool.query(
+      `
+        INSERT INTO ministries (id, name, description, created_at, updated_at)
+        VALUES ($1, $2, $3, $4, $5)
+      `,
+      [ministry.id, ministry.name, ministry.description, ministry.createdAt, ministry.updatedAt],
+    );
+    return;
+  }
+
+  const accessControl = await readAccessControl();
+  accessControl.ministries.unshift(ministry);
+  writeAccessControlFile(accessControl);
+}
+
+async function updateMinistryRecord(ministry) {
+  if (databasePool) {
+    await ensureDatabase();
+    await databasePool.query(
+      `
+        UPDATE ministries
+        SET name = $2, description = $3, updated_at = $4
+        WHERE id = $1
+      `,
+      [ministry.id, ministry.name, ministry.description, ministry.updatedAt],
+    );
+    return;
+  }
+
+  const accessControl = await readAccessControl();
+  accessControl.ministries = accessControl.ministries.map((item) =>
+    item.id === ministry.id ? ministry : item,
+  );
+  writeAccessControlFile(accessControl);
+}
+
+async function deleteMinistryRecord(id) {
+  if (databasePool) {
+    await ensureDatabase();
+    const result = await databasePool.query("DELETE FROM ministries WHERE id = $1", [id]);
+    return result.rowCount > 0;
+  }
+
+  const accessControl = await readAccessControl();
+  const nextMinistries = accessControl.ministries.filter((ministry) => ministry.id !== id);
+
+  if (nextMinistries.length === accessControl.ministries.length) {
+    return false;
+  }
+
+  accessControl.ministries = nextMinistries;
+  accessControl.roles = accessControl.roles.filter((role) => role.ministryId !== id);
+  accessControl.accounts = accessControl.accounts.filter((account) => account.ministryId !== id);
+  writeAccessControlFile(accessControl);
+  return true;
+}
+
+async function readAccessRoles() {
+  if (databasePool) {
+    await ensureDatabase();
+    const result = await databasePool.query(`
+      SELECT
+        access_roles.id,
+        access_roles.name,
+        access_roles.ministry_id,
+        ministries.name AS ministry_name,
+        access_roles.permissions,
+        access_roles.created_at,
+        access_roles.updated_at
+      FROM access_roles
+      LEFT JOIN ministries ON ministries.id = access_roles.ministry_id
+      ORDER BY access_roles.created_at DESC
+    `);
+
+    return result.rows.map(rowToAccessRole);
+  }
+
+  const accessControl = await readAccessControl();
+  const ministries = accessControl.ministries;
+
+  return accessControl.roles.map((role) => ({
+    ...role,
+    ministryName: ministries.find((ministry) => ministry.id === role.ministryId)?.name || "",
+    permissions: normalizePermissions(role.permissions),
+  }));
+}
+
+async function getAccessRoleRecord(id) {
+  if (databasePool) {
+    await ensureDatabase();
+    const result = await databasePool.query(
+      `
+        SELECT
+          access_roles.id,
+          access_roles.name,
+          access_roles.ministry_id,
+          ministries.name AS ministry_name,
+          access_roles.permissions,
+          access_roles.created_at,
+          access_roles.updated_at
+        FROM access_roles
+        LEFT JOIN ministries ON ministries.id = access_roles.ministry_id
+        WHERE access_roles.id = $1
+      `,
+      [id],
+    );
+
+    return result.rows[0] ? rowToAccessRole(result.rows[0]) : null;
+  }
+
+  return (await readAccessRoles()).find((role) => role.id === id) || null;
+}
+
+async function createAccessRoleRecord(role) {
+  if (databasePool) {
+    await ensureDatabase();
+    await databasePool.query(
+      `
+        INSERT INTO access_roles (id, name, ministry_id, permissions, created_at, updated_at)
+        VALUES ($1, $2, $3, $4::jsonb, $5, $6)
+      `,
+      [
+        role.id,
+        role.name,
+        role.ministryId,
+        JSON.stringify(role.permissions),
+        role.createdAt,
+        role.updatedAt,
+      ],
+    );
+    return;
+  }
+
+  const accessControl = await readAccessControl();
+  accessControl.roles.unshift(role);
+  writeAccessControlFile(accessControl);
+}
+
+async function updateAccessRoleRecord(role) {
+  if (databasePool) {
+    await ensureDatabase();
+    await databasePool.query(
+      `
+        UPDATE access_roles
+        SET name = $2, ministry_id = $3, permissions = $4::jsonb, updated_at = $5
+        WHERE id = $1
+      `,
+      [role.id, role.name, role.ministryId, JSON.stringify(role.permissions), role.updatedAt],
+    );
+    return;
+  }
+
+  const accessControl = await readAccessControl();
+  accessControl.roles = accessControl.roles.map((item) => (item.id === role.id ? role : item));
+  writeAccessControlFile(accessControl);
+}
+
+async function deleteAccessRoleRecord(id) {
+  if (databasePool) {
+    await ensureDatabase();
+    const result = await databasePool.query("DELETE FROM access_roles WHERE id = $1", [id]);
+    return result.rowCount > 0;
+  }
+
+  const accessControl = await readAccessControl();
+  const nextRoles = accessControl.roles.filter((role) => role.id !== id);
+
+  if (nextRoles.length === accessControl.roles.length) {
+    return false;
+  }
+
+  accessControl.roles = nextRoles;
+  accessControl.accounts = accessControl.accounts.map((account) =>
+    account.roleId === id ? { ...account, roleId: "" } : account,
+  );
+  writeAccessControlFile(accessControl);
+  return true;
+}
+
+async function readStaffAccounts() {
+  if (databasePool) {
+    await ensureDatabase();
+    const result = await databasePool.query(`
+      SELECT
+        staff_accounts.id,
+        staff_accounts.full_name,
+        staff_accounts.phone,
+        staff_accounts.ministry_id,
+        ministries.name AS ministry_name,
+        staff_accounts.role_id,
+        access_roles.name AS role_name,
+        staff_accounts.created_at,
+        staff_accounts.updated_at
+      FROM staff_accounts
+      LEFT JOIN ministries ON ministries.id = staff_accounts.ministry_id
+      LEFT JOIN access_roles ON access_roles.id = staff_accounts.role_id
+      ORDER BY staff_accounts.created_at DESC
+    `);
+
+    return result.rows.map(rowToStaffAccount);
+  }
+
+  const accessControl = await readAccessControl();
+  const ministries = accessControl.ministries;
+  const roles = accessControl.roles;
+
+  return accessControl.accounts.map((account) =>
+    toPublicStaffAccount(account, ministries, roles),
+  );
+}
+
+async function getStaffAccountRecord(id) {
+  return (await readStaffAccounts()).find((account) => account.id === id) || null;
+}
+
+async function getRawStaffAccountRecord(id) {
+  if (databasePool) {
+    await ensureDatabase();
+    const result = await databasePool.query(
+      `
+        SELECT
+          id,
+          full_name,
+          phone,
+          password_salt,
+          password_hash,
+          ministry_id,
+          role_id,
+          created_at,
+          updated_at
+        FROM staff_accounts
+        WHERE id = $1
+      `,
+      [id],
+    );
+
+    return result.rows[0] ? rowToRawStaffAccount(result.rows[0]) : null;
+  }
+
+  const accessControl = await readAccessControl();
+  return accessControl.accounts.find((account) => account.id === id) || null;
+}
+
+async function getRawStaffAccountByPhone(phone) {
+  if (databasePool) {
+    await ensureDatabase();
+    const result = await databasePool.query(
+      `
+        SELECT
+          staff_accounts.id,
+          staff_accounts.full_name,
+          staff_accounts.phone,
+          staff_accounts.password_salt,
+          staff_accounts.password_hash,
+          staff_accounts.ministry_id,
+          staff_accounts.role_id,
+          staff_accounts.created_at,
+          staff_accounts.updated_at,
+          access_roles.permissions
+        FROM staff_accounts
+        LEFT JOIN access_roles ON access_roles.id = staff_accounts.role_id
+        WHERE staff_accounts.phone = $1
+      `,
+      [phone],
+    );
+
+    return result.rows[0] ? rowToRawStaffAccount(result.rows[0]) : null;
+  }
+
+  const accessControl = await readAccessControl();
+  const account = accessControl.accounts.find((item) => item.phone === phone) || null;
+  const role = account ? accessControl.roles.find((item) => item.id === account.roleId) : null;
+
+  return account ? { ...account, permissions: normalizePermissions(role?.permissions) } : null;
+}
+
+async function createStaffAccountRecord(account) {
+  await ensureUniqueStaffPhone(account.phone);
+
+  if (databasePool) {
+    await ensureDatabase();
+    await databasePool.query(
+      `
+        INSERT INTO staff_accounts (
+          id,
+          full_name,
+          phone,
+          password_salt,
+          password_hash,
+          ministry_id,
+          role_id,
+          created_at,
+          updated_at
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+      `,
+      [
+        account.id,
+        account.fullName,
+        account.phone,
+        account.passwordSalt,
+        account.passwordHash,
+        account.ministryId,
+        account.roleId || null,
+        account.createdAt,
+        account.updatedAt,
+      ],
+    );
+    return;
+  }
+
+  const accessControl = await readAccessControl();
+  accessControl.accounts.unshift(account);
+  writeAccessControlFile(accessControl);
+}
+
+async function updateStaffAccountRecord(account) {
+  await ensureUniqueStaffPhone(account.phone, account.id);
+
+  if (databasePool) {
+    await ensureDatabase();
+    await databasePool.query(
+      `
+        UPDATE staff_accounts
+        SET
+          full_name = $2,
+          phone = $3,
+          password_salt = $4,
+          password_hash = $5,
+          ministry_id = $6,
+          role_id = $7,
+          updated_at = $8
+        WHERE id = $1
+      `,
+      [
+        account.id,
+        account.fullName,
+        account.phone,
+        account.passwordSalt,
+        account.passwordHash,
+        account.ministryId,
+        account.roleId || null,
+        account.updatedAt,
+      ],
+    );
+    return;
+  }
+
+  const accessControl = await readAccessControl();
+  accessControl.accounts = accessControl.accounts.map((item) =>
+    item.id === account.id ? account : item,
+  );
+  writeAccessControlFile(accessControl);
+}
+
+async function deleteStaffAccountRecord(id) {
+  if (databasePool) {
+    await ensureDatabase();
+    const result = await databasePool.query("DELETE FROM staff_accounts WHERE id = $1", [id]);
+    return result.rowCount > 0;
+  }
+
+  const accessControl = await readAccessControl();
+  const nextAccounts = accessControl.accounts.filter((account) => account.id !== id);
+
+  if (nextAccounts.length === accessControl.accounts.length) {
+    return false;
+  }
+
+  accessControl.accounts = nextAccounts;
+  writeAccessControlFile(accessControl);
+  return true;
+}
+
+async function ensureUniqueStaffPhone(phone, accountId = "") {
+  if (databasePool) {
+    await ensureDatabase();
+    const result = await databasePool.query(
+      "SELECT id FROM staff_accounts WHERE phone = $1 AND id <> $2",
+      [phone, accountId || ""],
+    );
+
+    if (result.rows[0]) {
+      throw httpError(409, "phone is already used.");
+    }
+
+    return;
+  }
+
+  const accessControl = await readAccessControl();
+  const isUsed = accessControl.accounts.some(
+    (account) => account.phone === phone && account.id !== accountId,
+  );
+
+  if (isUsed) {
+    throw httpError(409, "phone is already used.");
   }
 }
 
@@ -1058,6 +1967,44 @@ async function migrateDatabase() {
   await databasePool.query("ALTER TABLE trip_participants ADD COLUMN IF NOT EXISTS city_name TEXT NOT NULL DEFAULT ''");
   await databasePool.query("ALTER TABLE trip_participants ADD COLUMN IF NOT EXISTS available_days INTEGER NOT NULL DEFAULT 1");
   await databasePool.query("ALTER TABLE trip_participants ADD COLUMN IF NOT EXISTS donation TEXT NOT NULL DEFAULT ''");
+
+  await databasePool.query(`
+    CREATE TABLE IF NOT EXISTS ministries (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      description TEXT NOT NULL DEFAULT '',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+
+  await databasePool.query(`
+    CREATE TABLE IF NOT EXISTS access_roles (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      ministry_id TEXT REFERENCES ministries(id) ON DELETE CASCADE,
+      permissions JSONB NOT NULL DEFAULT '[]'::jsonb,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+
+  await databasePool.query(`
+    CREATE TABLE IF NOT EXISTS staff_accounts (
+      id TEXT PRIMARY KEY,
+      full_name TEXT NOT NULL,
+      phone TEXT NOT NULL UNIQUE,
+      password_salt TEXT NOT NULL,
+      password_hash TEXT NOT NULL,
+      ministry_id TEXT REFERENCES ministries(id) ON DELETE CASCADE,
+      role_id TEXT REFERENCES access_roles(id) ON DELETE SET NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+
+  await databasePool.query("ALTER TABLE access_roles ADD COLUMN IF NOT EXISTS permissions JSONB NOT NULL DEFAULT '[]'::jsonb");
+  await databasePool.query("ALTER TABLE staff_accounts ADD COLUMN IF NOT EXISTS role_id TEXT REFERENCES access_roles(id) ON DELETE SET NULL");
 }
 
 function rowToTrip(row) {
@@ -1087,6 +2034,103 @@ function rowToTrip(row) {
   };
 }
 
+function rowToMinistry(row) {
+  return {
+    id: row.id,
+    name: row.name,
+    description: row.description || "",
+    createdAt: row.created_at ? new Date(row.created_at).toISOString() : "",
+    updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : "",
+  };
+}
+
+function rowToAccessRole(row) {
+  return {
+    id: row.id,
+    name: row.name,
+    ministryId: row.ministry_id || "",
+    ministryName: row.ministry_name || "",
+    permissions: normalizePermissions(row.permissions),
+    createdAt: row.created_at ? new Date(row.created_at).toISOString() : "",
+    updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : "",
+  };
+}
+
+function rowToStaffAccount(row) {
+  return {
+    id: row.id,
+    fullName: row.full_name,
+    phone: row.phone,
+    ministryId: row.ministry_id || "",
+    ministryName: row.ministry_name || "",
+    roleId: row.role_id || "",
+    roleName: row.role_name || "",
+    createdAt: row.created_at ? new Date(row.created_at).toISOString() : "",
+    updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : "",
+  };
+}
+
+function rowToRawStaffAccount(row) {
+  return {
+    id: row.id,
+    fullName: row.full_name,
+    phone: row.phone,
+    passwordSalt: row.password_salt,
+    passwordHash: row.password_hash,
+    ministryId: row.ministry_id || "",
+    roleId: row.role_id || "",
+    permissions: normalizePermissions(row.permissions),
+    createdAt: row.created_at ? new Date(row.created_at).toISOString() : "",
+    updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : "",
+  };
+}
+
+function toPublicStaffAccount(account, ministries, roles) {
+  const ministry = ministries.find((item) => item.id === account.ministryId);
+  const role = roles.find((item) => item.id === account.roleId);
+
+  return {
+    id: account.id,
+    fullName: account.fullName,
+    phone: account.phone,
+    ministryId: account.ministryId || "",
+    ministryName: ministry?.name || "",
+    roleId: account.roleId || "",
+    roleName: role?.name || "",
+    createdAt: account.createdAt || "",
+    updatedAt: account.updatedAt || "",
+  };
+}
+
+function normalizePermissions(value) {
+  const collectPermission = (permission) => {
+    if (typeof permission !== "string") {
+      return [];
+    }
+
+    if (ACCESS_PERMISSION_IDS.has(permission)) {
+      return [permission];
+    }
+
+    return LEGACY_PERMISSION_MAP[permission] || [];
+  };
+
+  if (Array.isArray(value)) {
+    return [...new Set(value.flatMap(collectPermission))];
+  }
+
+  if (typeof value === "string") {
+    try {
+      const parsed = JSON.parse(value);
+      return normalizePermissions(parsed);
+    } catch {
+      return [];
+    }
+  }
+
+  return [];
+}
+
 function formatDateOnly(value) {
   if (value instanceof Date) {
     return value.toISOString().slice(0, 10);
@@ -1098,6 +2142,11 @@ function formatDateOnly(value) {
 function writeTripsFile(trips) {
   mkdirSync(dirname(TRIPS_DATA_FILE), { recursive: true });
   writeFileSync(TRIPS_DATA_FILE, JSON.stringify(trips, null, 2), "utf8");
+}
+
+function writeAccessControlFile(accessControl) {
+  mkdirSync(dirname(ACCESS_CONTROL_DATA_FILE), { recursive: true });
+  writeFileSync(ACCESS_CONTROL_DATA_FILE, JSON.stringify(accessControl, null, 2), "utf8");
 }
 
 function loadEnvFile() {
@@ -1182,8 +2231,51 @@ function isReadableStreamBody(body) {
 }
 
 async function verifyPassword(password) {
-  const candidateHash = await scrypt(password, ADMIN_PASSWORD_SALT, 64);
-  const storedHash = Buffer.from(ADMIN_PASSWORD_HASH, "hex");
+  return verifyPasswordHash(password, ADMIN_PASSWORD_SALT, ADMIN_PASSWORD_HASH);
+}
+
+async function authenticateStaffAccount(username, password) {
+  if (!username || !password) {
+    return null;
+  }
+
+  let phone = "";
+
+  try {
+    phone = normalizeAccountPhone(username);
+  } catch {
+    return null;
+  }
+
+  const account = await getRawStaffAccountByPhone(phone);
+
+  if (!account || !(await verifyPasswordHash(password, account.passwordSalt, account.passwordHash))) {
+    return null;
+  }
+
+  return {
+    id: account.id,
+    fullName: account.fullName,
+    phone: account.phone,
+    ministryId: account.ministryId,
+    roleId: account.roleId,
+    permissions: normalizePermissions(account.permissions),
+  };
+}
+
+async function hashPassword(password) {
+  const salt = randomBytes(16).toString("hex");
+  const hash = await scrypt(password, salt, 64);
+
+  return {
+    salt,
+    hash: hash.toString("hex"),
+  };
+}
+
+async function verifyPasswordHash(password, salt, hash) {
+  const candidateHash = await scrypt(password, salt, 64);
+  const storedHash = Buffer.from(hash, "hex");
 
   return candidateHash.length === storedHash.length && timingSafeEqual(candidateHash, storedHash);
 }
@@ -1213,10 +2305,87 @@ function authenticateAdmin(request) {
   const payload = verifyAccessToken(token);
 
   if (!payload || payload.sub !== ADMIN_USERNAME || payload.role !== "admin") {
+    if (!payload || payload.role !== "account" || !payload.accountId) {
+      return null;
+    }
+
+    return {
+      id: payload.accountId,
+      username: payload.phone,
+      role: "account",
+      ministryId: payload.ministryId,
+      roleId: payload.roleId,
+      permissions: normalizePermissions(payload.permissions),
+    };
+  }
+
+  return {
+    username: payload.sub,
+    role: payload.role,
+    permissions: normalizePermissions(payload.permissions),
+  };
+}
+
+async function authorizeRequest(request, response, origin, permissions = []) {
+  const user = await hydrateAuthenticatedUser(authenticateAdmin(request));
+
+  if (!user) {
+    sendJson(response, 401, { message: "Unauthorized." }, origin);
     return null;
   }
 
-  return { username: payload.sub, role: payload.role };
+  const requiredPermissions = Array.isArray(permissions) ? permissions : [permissions];
+
+  if (requiredPermissions.length && !hasAnyUserPermission(user, requiredPermissions)) {
+    sendJson(response, 403, { message: "Forbidden." }, origin);
+    return null;
+  }
+
+  return user;
+}
+
+async function hydrateAuthenticatedUser(user) {
+  if (!user || user.role !== "account" || !user.id) {
+    return user;
+  }
+
+  const account = await getRawStaffAccountRecord(user.id);
+
+  if (!account) {
+    return null;
+  }
+
+  const roles = await readAccessRoles();
+  const role = roles.find((item) => item.id === account.roleId);
+
+  return {
+    ...user,
+    username: account.phone,
+    fullName: account.fullName,
+    phone: account.phone,
+    ministryId: account.ministryId,
+    roleId: account.roleId,
+    permissions: normalizePermissions(role?.permissions),
+  };
+}
+
+function hasUserPermission(user, permission) {
+  return user?.role === "admin" || normalizePermissions(user?.permissions).includes(permission);
+}
+
+function hasAnyUserPermission(user, permissions) {
+  return user?.role === "admin" || permissions.some((permission) => hasUserPermission(user, permission));
+}
+
+function stripParticipantsWithoutPermission(trip, user) {
+  if (hasUserPermission(user, "participants:view")) {
+    return trip;
+  }
+
+  return {
+    ...trip,
+    participants: [],
+  };
 }
 
 function verifyAccessToken(token) {
