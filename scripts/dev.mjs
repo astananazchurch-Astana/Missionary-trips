@@ -2,7 +2,7 @@ import { spawn } from "node:child_process";
 
 const isWindows = process.platform === "win32";
 const processes = [
-  spawn(process.execPath, ["server/index.js"], {
+  spawn(process.execPath, ["--watch", "server/index.js"], {
     stdio: "inherit",
   }),
   spawn("npm", ["run", "dev:frontend"], {

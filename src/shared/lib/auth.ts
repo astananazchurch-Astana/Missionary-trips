@@ -117,6 +117,24 @@ export type Trip = {
   report?: TripReport | null;
 };
 
+export type CalendarEventStatus = "planned" | "confirmed" | "cancelled";
+
+export type CalendarEvent = {
+  id: string;
+  title: string;
+  description: string;
+  location: string;
+  startAt: string;
+  endAt: string;
+  date: string;
+  roleName: string;
+  color: string;
+  status: CalendarEventStatus;
+  createdBy?: string;
+  createdAt?: string;
+  updatedAt?: string;
+};
+
 export type TripParticipant = {
   id: string;
   fullName: string;
@@ -224,6 +242,17 @@ export type SaveTripReportInput = {
     participantId: string;
     text: string;
   }>;
+};
+
+export type CalendarEventInput = {
+  title: string;
+  description: string;
+  location: string;
+  startAt: string;
+  endAt: string;
+  roleName: string;
+  color: string;
+  status: CalendarEventStatus;
 };
 
 type LoginResponse = {
@@ -447,6 +476,49 @@ export async function fetchReports() {
   const response = await apiFetch<{ reports: TripReport[] }>("/api/admin/reports");
 
   return response.reports;
+}
+
+export async function fetchCalendarEvents(range?: { start?: string; end?: string }) {
+  const params = new URLSearchParams();
+
+  if (range?.start) {
+    params.set("start", range.start);
+  }
+
+  if (range?.end) {
+    params.set("end", range.end);
+  }
+
+  const query = params.toString();
+  const response = await apiFetch<{ events: CalendarEvent[] }>(
+    `/api/admin/calendar/events${query ? `?${query}` : ""}`,
+  );
+
+  return response.events;
+}
+
+export async function createCalendarEvent(input: CalendarEventInput) {
+  const response = await apiFetch<{ event: CalendarEvent }>("/api/admin/calendar/events", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+
+  return response.event;
+}
+
+export async function updateCalendarEvent(id: string, input: CalendarEventInput) {
+  const response = await apiFetch<{ event: CalendarEvent }>(`/api/admin/calendar/events/${id}`, {
+    method: "PUT",
+    body: JSON.stringify(input),
+  });
+
+  return response.event;
+}
+
+export async function deleteCalendarEvent(id: string) {
+  await apiFetch<{ ok: boolean }>(`/api/admin/calendar/events/${id}`, {
+    method: "DELETE",
+  });
 }
 
 export async function fetchPublicTrips() {

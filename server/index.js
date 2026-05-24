@@ -43,6 +43,10 @@ const DEFAULT_REPORTS_DATA_FILE = process.env.VERCEL
   ? "/tmp/missionary-reports.json"
   : "server/data/reports.json";
 const REPORTS_DATA_FILE = resolve(process.cwd(), process.env.REPORTS_DATA_FILE || DEFAULT_REPORTS_DATA_FILE);
+const DEFAULT_CALENDAR_DATA_FILE = process.env.VERCEL
+  ? "/tmp/missionary-calendar-events.json"
+  : "server/data/calendar-events.json";
+const CALENDAR_DATA_FILE = resolve(process.cwd(), process.env.CALENDAR_DATA_FILE || DEFAULT_CALENDAR_DATA_FILE);
 const ACCESS_ACTIONS = [
   { id: "view", label: "Просмотр" },
   { id: "create", label: "Создать" },
@@ -72,6 +76,12 @@ const ACCESS_MODULES = [
     group: "Отчеты",
     resource: "reports",
     label: "Отчеты по поездкам",
+    actions: ["view", "create", "update", "delete"],
+  },
+  {
+    group: "Календарь",
+    resource: "calendar",
+    label: "Календарь мероприятий",
     actions: ["view", "create", "update", "delete"],
   },
   {
@@ -289,6 +299,30 @@ export default async function handleRequest(request, response) {
       return;
     }
 
+    if (request.method === "GET" && url.pathname === "/api/admin/calendar/events") {
+      if (!(await authorizeRequest(request, response, origin, "calendar:view"))) {
+        return;
+      }
+
+      const events = filterCalendarEventsByRange(await readCalendarEvents(), url.searchParams);
+      sendJson(response, 200, { events }, origin);
+      return;
+    }
+
+    if (request.method === "POST" && url.pathname === "/api/admin/calendar/events") {
+      const admin = await authorizeRequest(request, response, origin, "calendar:create");
+
+      if (!admin) {
+        return;
+      }
+
+      const event = buildCalendarEvent(await readJsonBody(request), null, admin);
+      await createCalendarEventRecord(event);
+
+      sendJson(response, 201, { event }, origin);
+      return;
+    }
+
     if (request.method === "GET" && url.pathname === "/api/admin/access-control") {
       const admin = await authorizeRequest(request, response, origin, ACCESS_CONTROL_ROUTE_PERMISSIONS);
 
@@ -373,6 +407,7 @@ export default async function handleRequest(request, response) {
     const tripReportMatch = url.pathname.match(/^\/api\/admin\/trips\/([^/]+)\/report$/);
     const tripReportCompleteMatch = url.pathname.match(/^\/api\/admin\/trips\/([^/]+)\/report\/complete$/);
     const reportMatch = url.pathname.match(/^\/api\/admin\/reports\/([^/]+)$/);
+    const calendarEventMatch = url.pathname.match(/^\/api\/admin\/calendar\/events\/([^/]+)$/);
     const tripMatch = url.pathname.match(/^\/api\/admin\/trips\/([^/]+)$/);
     const ministryMatch = url.pathname.match(/^\/api\/admin\/ministries\/([^/]+)$/);
     const accessRoleMatch = url.pathname.match(/^\/api\/admin\/roles\/([^/]+)$/);
@@ -523,6 +558,43 @@ export default async function handleRequest(request, response) {
 
       if (!isDeleted) {
         sendJson(response, 404, { message: "Report not found." }, origin);
+        return;
+      }
+
+      sendJson(response, 200, { ok: true }, origin);
+      return;
+    }
+
+    if (request.method === "PUT" && calendarEventMatch) {
+      const admin = await authorizeRequest(request, response, origin, "calendar:update");
+
+      if (!admin) {
+        return;
+      }
+
+      const existingEvent = await getCalendarEventRecord(calendarEventMatch[1]);
+
+      if (!existingEvent) {
+        sendJson(response, 404, { message: "Calendar event not found." }, origin);
+        return;
+      }
+
+      const event = buildCalendarEvent(await readJsonBody(request), existingEvent, admin);
+      await updateCalendarEventRecord(event);
+
+      sendJson(response, 200, { event }, origin);
+      return;
+    }
+
+    if (request.method === "DELETE" && calendarEventMatch) {
+      if (!(await authorizeRequest(request, response, origin, "calendar:delete"))) {
+        return;
+      }
+
+      const isDeleted = await deleteCalendarEventRecord(calendarEventMatch[1]);
+
+      if (!isDeleted) {
+        sendJson(response, 404, { message: "Calendar event not found." }, origin);
         return;
       }
 
@@ -916,6 +988,72 @@ function validateDate(value, fieldName) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value) || Number.isNaN(Date.parse(`${value}T00:00:00Z`))) {
     throw httpError(400, `${fieldName} must use YYYY-MM-DD format.`);
   }
+}
+
+function buildCalendarEvent(body, existingEvent = null, user = null) {
+  const startAt = requiredText(body.startAt, "startAt", 32);
+  const endAt = requiredText(body.endAt, "endAt", 32);
+
+  validateDateTimeLocal(startAt, "startAt");
+  validateDateTimeLocal(endAt, "endAt");
+
+  if (endAt <= startAt) {
+    throw httpError(400, "endAt must be later than startAt.");
+  }
+
+  const now = new Date().toISOString();
+
+  return {
+    id: existingEvent?.id || randomUUID(),
+    title: requiredText(body.title, "title", 180),
+    description: optionalText(body.description, 2000),
+    location: optionalText(body.location, 180),
+    startAt,
+    endAt,
+    date: startAt.slice(0, 10),
+    roleName: optionalText(body.roleName, 120),
+    color: normalizeCalendarColor(body.color),
+    status: normalizeCalendarStatus(body.status),
+    createdBy: existingEvent?.createdBy || user?.fullName || user?.username || "admin",
+    createdAt: existingEvent?.createdAt || now,
+    updatedAt: now,
+  };
+}
+
+function validateDateTimeLocal(value, fieldName) {
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(value)) {
+    throw httpError(400, `${fieldName} must use YYYY-MM-DDTHH:mm format.`);
+  }
+
+  validateDate(value.slice(0, 10), fieldName);
+
+  const [, time] = value.split("T");
+  const [hours, minutes] = time.split(":").map(Number);
+
+  if (hours > 23 || minutes > 59) {
+    throw httpError(400, `${fieldName} must contain a valid time.`);
+  }
+}
+
+function normalizeCalendarColor(value) {
+  if (typeof value !== "string" || !value.trim()) {
+    return "#2f5d50";
+  }
+
+  const color = value.trim();
+
+  if (!/^#[0-9a-f]{6}$/i.test(color)) {
+    throw httpError(400, "color must be a hex value.");
+  }
+
+  return color;
+}
+
+function normalizeCalendarStatus(value) {
+  const status = typeof value === "string" ? value.trim() : "";
+  const allowedStatuses = new Set(["planned", "confirmed", "cancelled"]);
+
+  return allowedStatuses.has(status) ? status : "planned";
 }
 
 function buildParticipant(body, tripId) {
@@ -1442,6 +1580,179 @@ function normalizeParticipantReviews(value, participants, shouldComplete) {
       text,
     };
   });
+}
+
+function filterCalendarEventsByRange(events, searchParams) {
+  const start = searchParams.get("start") || "";
+  const end = searchParams.get("end") || "";
+
+  if (start) {
+    validateDate(start, "start");
+  }
+
+  if (end) {
+    validateDate(end, "end");
+  }
+
+  if (start && end && end < start) {
+    throw httpError(400, "end must be later than or equal to start.");
+  }
+
+  return events.filter((event) => {
+    if (start && event.date < start) {
+      return false;
+    }
+
+    if (end && event.date > end) {
+      return false;
+    }
+
+    return true;
+  });
+}
+
+async function readCalendarEvents() {
+  if (databasePool) {
+    await ensureDatabase();
+    const result = await databasePool.query(`
+      SELECT
+        id,
+        title,
+        description,
+        location,
+        start_at,
+        end_at,
+        event_date,
+        role_name,
+        color,
+        status,
+        created_by,
+        created_at,
+        updated_at
+      FROM calendar_events
+      ORDER BY start_at ASC, created_at DESC
+    `);
+
+    return result.rows.map(rowToCalendarEvent);
+  }
+
+  if (!existsSync(CALENDAR_DATA_FILE)) {
+    return [];
+  }
+
+  const content = readFileSync(CALENDAR_DATA_FILE, "utf8");
+  const parsed = JSON.parse(content);
+
+  return Array.isArray(parsed) ? parsed : [];
+}
+
+async function getCalendarEventRecord(id) {
+  return (await readCalendarEvents()).find((event) => event.id === id) || null;
+}
+
+async function createCalendarEventRecord(event) {
+  if (databasePool) {
+    await ensureDatabase();
+    await databasePool.query(
+      `
+        INSERT INTO calendar_events (
+          id,
+          title,
+          description,
+          location,
+          start_at,
+          end_at,
+          event_date,
+          role_name,
+          color,
+          status,
+          created_by,
+          created_at,
+          updated_at
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+      `,
+      [
+        event.id,
+        event.title,
+        event.description,
+        event.location,
+        event.startAt,
+        event.endAt,
+        event.date,
+        event.roleName,
+        event.color,
+        event.status,
+        event.createdBy,
+        event.createdAt,
+        event.updatedAt,
+      ],
+    );
+    return;
+  }
+
+  const events = await readCalendarEvents();
+  events.unshift(event);
+  writeCalendarEventsFile(events);
+}
+
+async function updateCalendarEventRecord(event) {
+  if (databasePool) {
+    await ensureDatabase();
+    await databasePool.query(
+      `
+        UPDATE calendar_events
+        SET
+          title = $2,
+          description = $3,
+          location = $4,
+          start_at = $5,
+          end_at = $6,
+          event_date = $7,
+          role_name = $8,
+          color = $9,
+          status = $10,
+          updated_at = $11
+        WHERE id = $1
+      `,
+      [
+        event.id,
+        event.title,
+        event.description,
+        event.location,
+        event.startAt,
+        event.endAt,
+        event.date,
+        event.roleName,
+        event.color,
+        event.status,
+        event.updatedAt,
+      ],
+    );
+    return;
+  }
+
+  const events = await readCalendarEvents();
+  const nextEvents = events.map((item) => (item.id === event.id ? event : item));
+  writeCalendarEventsFile(nextEvents);
+}
+
+async function deleteCalendarEventRecord(id) {
+  if (databasePool) {
+    await ensureDatabase();
+    const result = await databasePool.query("DELETE FROM calendar_events WHERE id = $1", [id]);
+    return result.rowCount > 0;
+  }
+
+  const events = await readCalendarEvents();
+  const nextEvents = events.filter((event) => event.id !== id);
+
+  if (nextEvents.length === events.length) {
+    return false;
+  }
+
+  writeCalendarEventsFile(nextEvents);
+  return true;
 }
 
 async function readReports() {
@@ -2543,6 +2854,24 @@ async function migrateDatabase() {
       completed_at TIMESTAMPTZ
     )
   `);
+
+  await databasePool.query(`
+    CREATE TABLE IF NOT EXISTS calendar_events (
+      id TEXT PRIMARY KEY,
+      title TEXT NOT NULL,
+      description TEXT NOT NULL DEFAULT '',
+      location TEXT NOT NULL DEFAULT '',
+      start_at TEXT NOT NULL,
+      end_at TEXT NOT NULL,
+      event_date DATE NOT NULL,
+      role_name TEXT NOT NULL DEFAULT '',
+      color TEXT NOT NULL DEFAULT '#2f5d50',
+      status TEXT NOT NULL DEFAULT 'planned',
+      created_by TEXT NOT NULL DEFAULT '',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
 }
 
 function rowToTrip(row) {
@@ -2590,6 +2919,24 @@ function rowToTripReport(row) {
     createdAt: row.created_at ? new Date(row.created_at).toISOString() : "",
     updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : "",
     completedAt: row.completed_at ? new Date(row.completed_at).toISOString() : "",
+  };
+}
+
+function rowToCalendarEvent(row) {
+  return {
+    id: row.id,
+    title: row.title,
+    description: row.description || "",
+    location: row.location || "",
+    startAt: row.start_at,
+    endAt: row.end_at,
+    date: formatDateOnly(row.event_date),
+    roleName: row.role_name || "",
+    color: row.color || "#2f5d50",
+    status: row.status || "planned",
+    createdBy: row.created_by || "",
+    createdAt: row.created_at ? new Date(row.created_at).toISOString() : "",
+    updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : "",
   };
 }
 
@@ -2728,6 +3075,11 @@ function writeAccessControlFile(accessControl) {
 function writeReportsFile(reports) {
   mkdirSync(dirname(REPORTS_DATA_FILE), { recursive: true });
   writeFileSync(REPORTS_DATA_FILE, JSON.stringify(reports, null, 2), "utf8");
+}
+
+function writeCalendarEventsFile(events) {
+  mkdirSync(dirname(CALENDAR_DATA_FILE), { recursive: true });
+  writeFileSync(CALENDAR_DATA_FILE, JSON.stringify(events, null, 2), "utf8");
 }
 
 function loadEnvFile() {

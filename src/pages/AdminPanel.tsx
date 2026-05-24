@@ -52,6 +52,7 @@ import {
 } from "../shared/lib/auth";
 import { Logo } from "../shared/ui/Logo";
 import { AdminAccessPanel } from "./AdminAccessPanel";
+import { AdminCalendarPanel } from "./AdminCalendarPanel";
 import { AdminReportsPanel } from "./AdminReportsPanel";
 import { TripReportEditor } from "./TripReportEditor";
 
@@ -68,7 +69,7 @@ type ParticipantMenuState = {
   left: number;
 };
 
-type AdminSection = "trips" | "accounts" | "reports";
+type AdminSection = "trips" | "calendar" | "accounts" | "reports";
 
 type TripFormState = {
   countryCode: string;
@@ -136,6 +137,7 @@ const accessSectionPermissions = [
 ];
 
 const reportSectionPermissions = ["reports:view", "reports:create", "reports:update", "reports:delete"];
+const calendarSectionPermissions = ["calendar:view", "calendar:create", "calendar:update", "calendar:delete"];
 
 export function AdminPanel({ homeHref, onHome, onLogout, user }: AdminPanelProps) {
   const canViewTrips = hasPermission(user, "trips:view");
@@ -148,15 +150,19 @@ export function AdminPanel({ homeHref, onHome, onLogout, user }: AdminPanelProps
   const canCreateReports = hasPermission(user, "reports:create");
   const canUpdateReports = hasPermission(user, "reports:update");
   const canDeleteReports = hasPermission(user, "reports:delete");
+  const canViewCalendar = hasAnyPermission(user, calendarSectionPermissions) && hasPermission(user, "calendar:view");
+  const canCreateCalendar = hasPermission(user, "calendar:create");
+  const canUpdateCalendar = hasPermission(user, "calendar:update");
+  const canDeleteCalendar = hasPermission(user, "calendar:delete");
   const canUseLeaderTrips = user.role === "account" && hasAnyPermission(user, reportSectionPermissions);
   const canOpenTripsSection = canViewTrips || canUseLeaderTrips;
   const canAssignLeader = canViewParticipants && canUpdateTrip && hasPermission(user, "accounts:create");
   const canViewTripParticipants = canViewParticipants || canUseLeaderTrips;
   const canManageAccess = hasAnyPermission(user, accessSectionPermissions);
   const canUseTripForm = canCreateTrip || canUpdateTrip;
-  const hasAnyAdminSection = canOpenTripsSection || canManageAccess || canViewReports;
+  const hasAnyAdminSection = canOpenTripsSection || canViewCalendar || canManageAccess || canViewReports;
   const [activeSection, setActiveSection] = useState<AdminSection>(() =>
-    canOpenTripsSection ? "trips" : canViewReports ? "reports" : "accounts",
+    canOpenTripsSection ? "trips" : canViewCalendar ? "calendar" : canViewReports ? "reports" : "accounts",
   );
   const [trips, setTrips] = useState<Trip[]>([]);
   const [metrics, setMetrics] = useState<AdminMetric[]>([]);
@@ -191,18 +197,33 @@ export function AdminPanel({ homeHref, onHome, onLogout, user }: AdminPanelProps
   );
 
   useEffect(() => {
+    const nextAvailableSection = canOpenTripsSection
+      ? "trips"
+      : canViewCalendar
+        ? "calendar"
+        : canViewReports
+          ? "reports"
+          : "accounts";
+
     if (activeSection === "trips" && !canOpenTripsSection) {
-      setActiveSection(canViewReports ? "reports" : "accounts");
+      setActiveSection(nextAvailableSection);
+      return;
     }
 
-    if (activeSection === "accounts" && !canManageAccess && canViewTrips) {
-      setActiveSection("trips");
+    if (activeSection === "calendar" && !canViewCalendar) {
+      setActiveSection(nextAvailableSection);
+      return;
+    }
+
+    if (activeSection === "accounts" && !canManageAccess) {
+      setActiveSection(nextAvailableSection);
+      return;
     }
 
     if (activeSection === "reports" && !canViewReports) {
-      setActiveSection(canOpenTripsSection ? "trips" : "accounts");
+      setActiveSection(nextAvailableSection);
     }
-  }, [activeSection, canManageAccess, canOpenTripsSection, canViewReports, canViewTrips]);
+  }, [activeSection, canManageAccess, canOpenTripsSection, canViewCalendar, canViewReports]);
 
   useEffect(() => {
     let isMounted = true;
@@ -666,6 +687,20 @@ export function AdminPanel({ homeHref, onHome, onLogout, user }: AdminPanelProps
     setActiveSection("trips");
   };
 
+  const openCalendarSection = () => {
+    if (!canViewCalendar) {
+      return;
+    }
+
+    setActiveSection("calendar");
+    setSelectedTrip(null);
+    setIsCreateOpen(false);
+    setEditingTrip(null);
+    setViewingParticipant(null);
+    setParticipantToDelete(null);
+    setLeaderModal(null);
+  };
+
   const openAccountsSection = () => {
     if (!canManageAccess) {
       return;
@@ -723,6 +758,16 @@ export function AdminPanel({ homeHref, onHome, onLogout, user }: AdminPanelProps
               Поездки
             </button>
           ) : null}
+          {canViewCalendar ? (
+            <button
+              className={`admin-menu__item${activeSection === "calendar" ? " admin-menu__item--active" : ""}`}
+              type="button"
+              onClick={openCalendarSection}
+            >
+              <CalendarDays size={19} aria-hidden="true" />
+              Календарь
+            </button>
+          ) : null}
           {canViewReports ? (
             <button
               className={`admin-menu__item${activeSection === "reports" ? " admin-menu__item--active" : ""}`}
@@ -759,6 +804,13 @@ export function AdminPanel({ homeHref, onHome, onLogout, user }: AdminPanelProps
               <p>Администратор пока не выдал права для этой учетной записи.</p>
             </div>
           </section>
+        ) : activeSection === "calendar" && canViewCalendar ? (
+          <AdminCalendarPanel
+            canCreate={canCreateCalendar}
+            canDelete={canDeleteCalendar}
+            canUpdate={canUpdateCalendar}
+            onLogout={onLogout}
+          />
         ) : activeSection === "accounts" && canManageAccess ? (
           <AdminAccessPanel onLogout={onLogout} user={user} />
         ) : activeSection === "reports" && canViewReports ? (
