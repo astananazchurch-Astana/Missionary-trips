@@ -13,7 +13,7 @@ export function HeroSection() {
     >
       <div className="hero__content">
         <Logo className="hero__logo" />
-        <span className="hero__eyebrow">Астана • Назаряне • служение</span>
+        <span className="hero__eyebrow">Астана • Назарянина • служение</span>
         <h1>{church.name}</h1>
         <p>{church.tagline}</p>
 

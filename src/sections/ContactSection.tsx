@@ -34,7 +34,7 @@ export function ContactSection() {
 
         <div className="map-frame">
           <iframe
-            title="Карта: Церковь Назаряне Астана"
+            title="Карта: Церковь Назарянина Астана"
             src={church.mapUrl}
             loading="lazy"
             referrerPolicy="no-referrer-when-downgrade"

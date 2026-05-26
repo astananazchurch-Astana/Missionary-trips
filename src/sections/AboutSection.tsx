@@ -21,7 +21,7 @@ export function AboutSection() {
         <div className="fact-panel">
           <span className="fact-panel__label">Официальные данные</span>
           <h3>{church.legalName}</h3>
-          <p>Руководитель: {church.leader}</p>
+          <p>Пастор: {church.leader}</p>
           <div className="fact-grid">
             {facts.map((fact) => {
               const Icon = fact.icon;
