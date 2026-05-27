@@ -3,21 +3,27 @@ import {
   ArrowLeft,
   ArrowRight,
   CalendarDays,
+  CheckCircle2,
   Eye,
   FileText,
   HeartHandshake,
   Mail,
   MapPin,
+  MessageSquare,
   Phone,
   ShieldCheck,
   UserRound,
   UsersRound,
+  Wallet,
   X,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import {
   type PublicTrip,
   type PublicTripParticipant,
+  type TripApplicationType,
+  type TripCostDetails,
+  type TripExpenseCommitment,
   fetchPublicTrip,
   submitTripApplication,
 } from "../shared/lib/auth";
@@ -40,20 +46,41 @@ type TripInfoModalState = {
 
 type ApplicationFormState = {
   fullName: string;
+  applicationType: TripApplicationType | "";
   cityName: string;
   availableDays: string;
   phone: string;
   email: string;
   donation: string;
+  expenseCommitmentIds: string[];
+  comment: string;
 };
+
+type ApplicationStringField = Exclude<keyof ApplicationFormState, "expenseCommitmentIds">;
 
 const emptyForm: ApplicationFormState = {
   fullName: "",
+  applicationType: "",
   cityName: "",
   availableDays: "",
   phone: "+7 ",
   email: "",
   donation: "",
+  expenseCommitmentIds: [],
+  comment: "",
+};
+
+const applicationTypeLabels: Record<TripApplicationType, string> = {
+  ready: "Готов поехать",
+  reserve: "Готов поехать (резерв)",
+  pray: "Буду молиться",
+  support: "Поддержу финансово",
+};
+
+const costItemLabels = {
+  travel: "Дорога",
+  lodging: "Проживание",
+  food: "Еда",
 };
 
 const kazakhstanCities = [
@@ -152,19 +179,34 @@ export function ApplyPage({ homeHref, onHome }: ApplyPageProps) {
   const participants = trip?.participants || [];
   const isClosed = trip ? isRegistrationClosed(trip.registrationDeadline || trip.date) : false;
   const availableSpots = Math.max(Number(trip?.availableSpots ?? trip?.peopleLimit ?? 0), 0);
-  const canApply = Boolean(trip && !isClosed && availableSpots > 0);
+  const canSendApplication = Boolean(trip && !isClosed);
+  const isTravelApplication = form.applicationType === "ready" || form.applicationType === "reserve";
+  const isSupportApplication = form.applicationType === "support";
+  const isPrayerApplication = form.applicationType === "pray";
+  const costItems = getCostItems(trip?.costDetails);
+  const selectedExpenseCommitments = costItems.filter((item) => form.expenseCommitmentIds.includes(item.id));
   const tripTitle = trip ? `${trip.cityName}, ${trip.countryName}` : "Миссионерская поездка";
   const needsRestrictionsConfirmation = Boolean(trip?.restrictions);
   const needsNoteConfirmation = Boolean(trip?.note);
   const hasReadRequiredInfo =
     (!needsRestrictionsConfirmation || readConfirmations.restrictions) &&
     (!needsNoteConfirmation || readConfirmations.note);
-  const canSubmitApplication = canApply && hasReadRequiredInfo && !isSubmitting;
+  const canSubmitApplication = canSendApplication && Boolean(form.applicationType) && hasReadRequiredInfo && !isSubmitting;
 
-  const updateForm = (field: keyof ApplicationFormState, value: string) => {
+  const updateForm = (field: ApplicationStringField, value: string) => {
     setForm((currentForm) => ({
       ...currentForm,
       [field]: field === "phone" ? formatKzPhone(value) : value,
+      ...(field === "applicationType" ? { expenseCommitmentIds: [], donation: "", comment: "" } : {}),
+    }));
+  };
+
+  const toggleExpenseCommitment = (id: string, isChecked: boolean) => {
+    setForm((currentForm) => ({
+      ...currentForm,
+      expenseCommitmentIds: isChecked
+        ? [...new Set([...currentForm.expenseCommitmentIds, id])]
+        : currentForm.expenseCommitmentIds.filter((currentId) => currentId !== id),
     }));
   };
 
@@ -180,8 +222,18 @@ export function ApplyPage({ homeHref, onHome }: ApplyPageProps) {
     setError("");
     setSuccess("");
 
-    if (!trip || !canApply) {
+    if (!trip || !canSendApplication) {
       setError("Регистрация на эту поездку уже закрыта.");
+      return;
+    }
+
+    if (!form.applicationType) {
+      setError("Выберите, как вы хотите участвовать в поездке.");
+      return;
+    }
+
+    if (form.applicationType === "ready" && availableSpots <= 0) {
+      setError("Свободных мест уже нет. Вы можете выбрать резерв.");
       return;
     }
 
@@ -195,11 +247,14 @@ export function ApplyPage({ homeHref, onHome }: ApplyPageProps) {
     try {
       const participant = await submitTripApplication(trip.id, {
         fullName: form.fullName,
-        cityName: form.cityName,
-        availableDays: Number(form.availableDays),
-        phone: form.phone,
-        email: form.email,
-        donation: form.donation,
+        applicationType: form.applicationType,
+        cityName: isTravelApplication ? form.cityName : undefined,
+        availableDays: isTravelApplication ? Number(form.availableDays) : undefined,
+        phone: isPrayerApplication ? undefined : form.phone,
+        email: isPrayerApplication ? undefined : form.email,
+        donation: isSupportApplication ? form.donation : "",
+        expenseCommitments: selectedExpenseCommitments,
+        comment: form.comment,
       });
 
       setTrip((currentTrip) => addParticipantToTrip(currentTrip, participant));
@@ -255,6 +310,7 @@ export function ApplyPage({ homeHref, onHome }: ApplyPageProps) {
                   value={formatDate(trip.registrationDeadline || trip.date)}
                 />
                 <TripFact icon={UsersRound} label="Нужно людей" value={`${availableSpots} из ${trip.peopleLimit}`} />
+                <TripFact icon={Wallet} label="Стоимость на человека" value={getCostSummary(trip.costDetails) || trip.cost} />
                 {trip.restrictions ? (
                   <TripFact
                     icon={ShieldCheck}
@@ -312,9 +368,9 @@ export function ApplyPage({ homeHref, onHome }: ApplyPageProps) {
             <h2>Заполните данные</h2>
           </div>
 
-          {trip && !canApply ? (
+          {trip && isClosed ? (
             <div className="apply-closed">
-              <strong>{isClosed ? "Регистрация закрыта" : "Свободных мест нет"}</strong>
+              <strong>Регистрация закрыта</strong>
               <p>Эта поездка пока остается в списке, но новые заявки уже не принимаются.</p>
             </div>
           ) : null}
@@ -333,6 +389,30 @@ export function ApplyPage({ homeHref, onHome }: ApplyPageProps) {
               </div>
             </label>
 
+            <label className="form-field">
+              <span>Как вы хотите участвовать</span>
+              <div className="input-shell input-shell--select">
+                <CheckCircle2 size={19} aria-hidden="true" />
+                <select
+                  required
+                  value={form.applicationType}
+                  onChange={(event) => updateForm("applicationType", event.target.value)}
+                >
+                  <option value="">Выберите вариант</option>
+                  {availableSpots > 0 ? <option value="ready">{applicationTypeLabels.ready}</option> : null}
+                  <option value="reserve">{applicationTypeLabels.reserve}</option>
+                  <option value="pray">{applicationTypeLabels.pray}</option>
+                  <option value="support">{applicationTypeLabels.support}</option>
+                </select>
+              </div>
+            </label>
+
+            {!isClosed && availableSpots <= 0 ? (
+              <p className="apply-hint">Основные места заполнены, можно оставить резервную заявку или поддержать поездку.</p>
+            ) : null}
+
+            {isTravelApplication ? (
+            <>
             <label className="form-field">
               <span>Город в Казахстане</span>
               <div className="input-shell input-shell--select">
@@ -365,6 +445,11 @@ export function ApplyPage({ homeHref, onHome }: ApplyPageProps) {
               />
             </label>
 
+            </>
+            ) : null}
+
+            {form.applicationType && !isPrayerApplication ? (
+            <>
             <label className="form-field">
               <span>Номер телефона</span>
               <div className="input-shell">
@@ -394,7 +479,10 @@ export function ApplyPage({ homeHref, onHome }: ApplyPageProps) {
                 />
               </div>
             </label>
+            </>
+            ) : null}
 
+            {isSupportApplication ? (
             <label className="form-field">
               <span>Пожертвование на поездку</span>
               <div className="input-shell">
@@ -406,6 +494,46 @@ export function ApplyPage({ homeHref, onHome }: ApplyPageProps) {
                 />
               </div>
             </label>
+            ) : null}
+
+            {(isTravelApplication || isSupportApplication) && costItems.length ? (
+              <div className="apply-cost-options">
+                <div className="apply-cost-options__header">
+                  <Wallet size={19} aria-hidden="true" />
+                  <div>
+                    <span>Стоимость на одного человека</span>
+                    <strong>{getCostSummary(trip?.costDetails)}</strong>
+                  </div>
+                </div>
+                <div className="apply-confirmations apply-confirmations--costs" aria-label="Расходы поездки">
+                  {costItems.map((item) => (
+                    <label className="apply-confirmation" key={item.id}>
+                      <input
+                        type="checkbox"
+                        checked={form.expenseCommitmentIds.includes(item.id)}
+                        onChange={(event) => toggleExpenseCommitment(item.id, event.target.checked)}
+                      />
+                      <span>{item.name} — {item.amount}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+
+            {(isPrayerApplication || isSupportApplication) ? (
+              <label className="form-field">
+                <span>{isPrayerApplication ? "За что будете молиться" : "Комментарий"}</span>
+                <div className="input-shell input-shell--textarea">
+                  <MessageSquare size={19} aria-hidden="true" />
+                  <textarea
+                    rows={3}
+                    value={form.comment}
+                    onChange={(event) => updateForm("comment", event.target.value)}
+                    placeholder={isPrayerApplication ? "Напишите, как будете поддерживать молитвой" : "Например, удобный способ связи"}
+                  />
+                </div>
+              </label>
+            ) : null}
 
             {trip && (trip.restrictions || trip.note) ? (
               <div className="apply-confirmations" aria-label="Подтверждение ознакомления">
@@ -543,16 +671,51 @@ function getApplyTitleClassName(title: string) {
   return "apply-hero__title";
 }
 
+function getCostItems(costDetails?: TripCostDetails): TripExpenseCommitment[] {
+  if (!costDetails) {
+    return [];
+  }
+
+  const baseItems: TripExpenseCommitment[] = [
+    { id: "travel", name: costItemLabels.travel, amount: costDetails.travel },
+    { id: "lodging", name: costItemLabels.lodging, amount: costDetails.lodging },
+    { id: "food", name: costItemLabels.food, amount: costDetails.food },
+  ].filter((item) => item.amount.trim());
+
+  const otherItems = (costDetails.other || [])
+    .filter((item) => item.amount.trim())
+    .map((item) => ({
+      id: `other:${item.id}`,
+      name: item.name.trim() || "Прочее",
+      amount: item.amount.trim(),
+    }));
+
+  return [...baseItems, ...otherItems];
+}
+
+function getCostSummary(costDetails?: TripCostDetails) {
+  const total = getCostItems(costDetails).reduce((sum, item) => sum + parseMoneyAmount(item.amount), 0);
+
+  return total > 0 ? `${new Intl.NumberFormat("ru-RU").format(total)} ₸` : "";
+}
+
+function parseMoneyAmount(value: string) {
+  const digits = value.replace(/[^\d]/g, "");
+
+  return digits ? Number(digits) : 0;
+}
+
 function addParticipantToTrip(trip: PublicTrip | null, participant: PublicTripParticipant) {
   if (!trip) {
     return trip;
   }
 
-  const participantsCount = Number(trip.participantsCount || 0) + 1;
+  const isReadyParticipant = participant.applicationType === "ready" || !participant.applicationType;
+  const participantsCount = Number(trip.participantsCount || 0) + (isReadyParticipant ? 1 : 0);
 
   return {
     ...trip,
-    participants: [participant, ...(trip.participants || [])],
+    participants: isReadyParticipant ? [participant, ...(trip.participants || [])] : trip.participants || [],
     participantsCount,
     availableSpots: Math.max(Number(trip.peopleLimit || 0) - participantsCount, 0),
   };

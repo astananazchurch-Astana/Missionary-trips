@@ -1133,6 +1133,17 @@ textarea {
   opacity: 0.58;
 }
 
+.apply-hint {
+  margin: 12px 0 0;
+  padding: 11px 12px;
+  color: var(--green);
+  border: 1px solid rgba(47, 93, 80, 0.16);
+  border-radius: 8px;
+  background: rgba(47, 93, 80, 0.08);
+  font-weight: 800;
+  line-height: 1.45;
+}
+
 .apply-confirmations {
   display: grid;
   gap: 10px;
@@ -1160,6 +1171,64 @@ textarea {
   margin: 1px 0 0;
   accent-color: var(--green);
   cursor: pointer;
+}
+
+.apply-cost-options {
+  display: grid;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.apply-cost-options__header {
+  display: grid;
+  grid-template-columns: 24px 1fr;
+  gap: 10px;
+  align-items: center;
+  padding: 12px 14px;
+  border: 1px solid rgba(215, 170, 69, 0.28);
+  border-radius: 8px;
+  background: rgba(243, 198, 95, 0.14);
+}
+
+.apply-cost-options__header svg {
+  color: var(--green);
+}
+
+.apply-cost-options__header span {
+  display: block;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.apply-cost-options__header strong {
+  display: block;
+  margin-top: 3px;
+  font-size: 1.15rem;
+}
+
+.apply-confirmations--costs {
+  margin-top: 0;
+  background: rgba(255, 255, 255, 0.54);
+}
+
+.input-shell--textarea {
+  grid-template-columns: 24px 1fr;
+  align-items: start;
+  padding-top: 12px;
+  padding-bottom: 12px;
+}
+
+.input-shell--textarea textarea {
+  width: 100%;
+  min-width: 0;
+  resize: vertical;
+  color: var(--ink);
+  border: 0;
+  outline: 0;
+  background: transparent;
+  line-height: 1.55;
 }
 
 .apply-error,
@@ -2169,6 +2238,19 @@ textarea {
   box-shadow: 0 30px 100px rgba(0, 0, 0, 0.32);
 }
 
+.trip-modal-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 760px);
+  align-items: start;
+  gap: 14px;
+  width: min(1160px, 100%);
+  margin: auto;
+}
+
+.trip-modal-layout--with-panel {
+  grid-template-columns: minmax(0, 760px) minmax(320px, 380px);
+}
+
 .trip-modal__header {
   display: flex;
   align-items: flex-start;
@@ -2251,6 +2333,117 @@ textarea {
   justify-content: flex-end;
   gap: 10px;
   margin-top: 4px;
+}
+
+.cost-summary-button {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr) 20px;
+  align-items: center;
+  gap: 8px;
+  min-height: 42px;
+  padding: 0 10px;
+  color: var(--ink);
+  border: 1px solid rgba(9, 8, 7, 0.14);
+  border-radius: 8px;
+  background: white;
+  text-align: left;
+  cursor: pointer;
+}
+
+.cost-summary-button:hover {
+  border-color: rgba(215, 170, 69, 0.7);
+  box-shadow: 0 0 0 3px rgba(215, 170, 69, 0.14);
+}
+
+.cost-summary-button svg {
+  color: var(--green);
+}
+
+.cost-summary-button span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cost-side-panel {
+  max-height: calc(100svh - 28px);
+  overflow-y: auto;
+  padding: 18px;
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--paper);
+  box-shadow: 0 30px 100px rgba(0, 0, 0, 0.26);
+}
+
+.cost-fields,
+.cost-other-list {
+  display: grid;
+  gap: 10px;
+}
+
+.cost-side-panel .form-field {
+  margin-top: 0;
+}
+
+.cost-side-panel__section {
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+
+.cost-side-panel__topline {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.cost-add-button {
+  width: auto;
+  min-height: 38px;
+  padding: 0 12px;
+}
+
+.cost-other-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(120px, 0.7fr) 44px;
+  gap: 8px;
+  align-items: end;
+}
+
+.cost-other-item__remove {
+  width: 42px;
+  height: 42px;
+  color: var(--wine);
+}
+
+.cost-side-panel__empty {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+.cost-total-card {
+  display: grid;
+  gap: 6px;
+  margin-top: 18px;
+  padding: 14px;
+  border: 1px solid rgba(47, 93, 80, 0.18);
+  border-radius: 8px;
+  background: rgba(47, 93, 80, 0.08);
+}
+
+.cost-total-card span {
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.cost-total-card strong {
+  font-size: 1.35rem;
 }
 
 .detail-back {
@@ -2353,6 +2546,45 @@ textarea {
   color: var(--muted);
 }
 
+.participant-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.participant-filter {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 38px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 250, 240, 0.72);
+  color: var(--charcoal);
+  font-weight: 850;
+  cursor: pointer;
+}
+
+.participant-filter input {
+  width: 17px;
+  height: 17px;
+  margin: 0;
+  accent-color: var(--green);
+}
+
+.participant-filter strong {
+  display: inline-grid;
+  min-width: 24px;
+  height: 24px;
+  place-items: center;
+  color: var(--green);
+  border-radius: 999px;
+  background: rgba(47, 93, 80, 0.1);
+  font-size: 0.78rem;
+}
+
 .participants-table {
   margin-top: 16px;
   overflow-x: auto;
@@ -2364,15 +2596,15 @@ textarea {
   grid-template-columns:
     minmax(190px, 1.1fr)
     minmax(130px, 0.75fr)
-    minmax(80px, 0.45fr)
+    minmax(170px, 0.9fr)
     minmax(150px, 0.8fr)
     minmax(150px, 0.8fr)
-    minmax(120px, 0.7fr)
+    minmax(190px, 1fr)
     54px
     44px;
   gap: 14px;
   align-items: center;
-  min-width: 990px;
+  min-width: 1180px;
   padding: 14px 0;
   border-top: 1px solid var(--line);
 }
@@ -2386,6 +2618,46 @@ textarea {
   font-size: 0.82rem;
   font-weight: 900;
   text-transform: uppercase;
+}
+
+.participant-name-button {
+  padding: 0;
+  color: inherit;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  font-weight: 900;
+  line-height: 1.25;
+  cursor: pointer;
+}
+
+.participant-name-button:hover {
+  color: var(--green);
+}
+
+.cost-breakdown-list {
+  display: grid;
+  gap: 8px;
+}
+
+.cost-breakdown-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 250, 240, 0.68);
+}
+
+.cost-breakdown-item span {
+  color: var(--muted);
+  font-weight: 850;
+}
+
+.cost-breakdown-item strong {
+  text-align: right;
 }
 
 .participant-actions {
@@ -3751,6 +4023,23 @@ textarea {
 
   .trip-form__actions {
     display: grid;
+  }
+
+  .trip-modal-layout,
+  .trip-modal-layout--with-panel {
+    grid-template-columns: 1fr;
+  }
+
+  .cost-side-panel {
+    max-height: none;
+  }
+
+  .cost-other-item {
+    grid-template-columns: 1fr;
+  }
+
+  .cost-other-item__remove {
+    width: 100%;
   }
 
   .participant-modal__grid,

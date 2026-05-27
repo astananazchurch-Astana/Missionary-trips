@@ -132,6 +132,17 @@ const LEGACY_PERMISSION_MAP = {
   "accounts:manage": ["accounts:view", "accounts:create", "accounts:update", "accounts:delete"],
   "roles:manage": ["roles:view", "roles:create", "roles:update", "roles:delete"],
 };
+const TRIP_COST_ITEM_NAMES = {
+  travel: "Дорога",
+  lodging: "Проживание",
+  food: "Еда",
+};
+const APPLICATION_TYPE_LABELS = {
+  ready: "Готов поехать",
+  reserve: "Готов поехать (резерв)",
+  pray: "Буду молиться",
+  support: "Поддержу финансово",
+};
 const ACCESS_PERMISSION_IDS = new Set(ACCESS_PERMISSIONS.map((permission) => permission.id));
 const ACCESS_CONTROL_ROUTE_PERMISSIONS = ACCESS_PERMISSIONS
   .filter((permission) => ["accounts", "ministries", "roles"].includes(permission.resource))
@@ -206,12 +217,14 @@ export default async function handleRequest(request, response) {
         return;
       }
 
-      if ((trip.participants || []).length >= Number(trip.peopleLimit || 0)) {
+      const body = await readJsonBody(request);
+      const applicationType = normalizeApplicationType(body.applicationType);
+
+      if (applicationType === "ready" && getTripReadyParticipantsCount(trip) >= Number(trip.peopleLimit || 0)) {
         sendJson(response, 400, { message: "There are no available spots for this trip." }, origin);
         return;
       }
 
-      const body = await readJsonBody(request);
       const participant = buildParticipant(body, trip.id);
 
       await createTripParticipant(participant);
@@ -962,6 +975,13 @@ function buildTrip(body, existingTrip = null) {
     throw httpError(400, "People limit must be a positive integer.");
   }
 
+  const costDetails = normalizeTripCostDetails(body.costDetails, body.cost);
+  const cost = optionalText(body.cost, 160) || formatTripCostTotal(costDetails);
+
+  if (!cost) {
+    throw httpError(400, "cost is required.");
+  }
+
   return {
     id: existingTrip?.id || randomUUID(),
     countryCode,
@@ -974,14 +994,91 @@ function buildTrip(body, existingTrip = null) {
     endDate,
     peopleLimit,
     restrictions: requiredText(body.restrictions, "restrictions", 1000),
-    cost: requiredText(body.cost, "cost", 160),
+    cost,
+    costDetails,
     note: optionalText(body.note, 1000),
     status: existingTrip?.status || "Набор открыт",
     leaderAccountId: existingTrip?.leaderAccountId || "",
     leaderParticipantId: existingTrip?.leaderParticipantId || "",
     createdAt: existingTrip?.createdAt || new Date().toISOString(),
     updatedAt: new Date().toISOString(),
+    participants: existingTrip?.participants || [],
   };
+}
+
+function normalizeTripCostDetails(value, fallbackCost = "") {
+  const source = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  const fallbackAmount = typeof fallbackCost === "string" ? fallbackCost.trim() : "";
+  const travel = optionalText(source.travel ?? fallbackAmount, 160);
+
+  return {
+    travel,
+    lodging: optionalText(source.lodging, 160),
+    food: optionalText(source.food, 160),
+    other: normalizeTripCostOtherItems(source.other),
+  };
+}
+
+function normalizeTripCostOtherItems(value) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .slice(0, 20)
+    .map((item) => {
+      if (!item || typeof item !== "object") {
+        return null;
+      }
+
+      const name = optionalText(item.name, 120);
+      const amount = optionalText(item.amount, 160);
+
+      if (!name && !amount) {
+        return null;
+      }
+
+      return {
+        id: optionalText(item.id, 80) || randomUUID(),
+        name: name || "Прочее",
+        amount,
+      };
+    })
+    .filter(Boolean);
+}
+
+function getTripCostItems(costDetails) {
+  const normalizedCostDetails = normalizeTripCostDetails(costDetails);
+  const baseItems = [
+    { id: "travel", name: TRIP_COST_ITEM_NAMES.travel, amount: normalizedCostDetails.travel },
+    { id: "lodging", name: TRIP_COST_ITEM_NAMES.lodging, amount: normalizedCostDetails.lodging },
+    { id: "food", name: TRIP_COST_ITEM_NAMES.food, amount: normalizedCostDetails.food },
+  ].filter((item) => item.amount);
+
+  const otherItems = normalizedCostDetails.other
+    .filter((item) => item.name || item.amount)
+    .map((item) => ({
+      id: `other:${item.id}`,
+      name: item.name || "Прочее",
+      amount: item.amount,
+    }));
+
+  return [...baseItems, ...otherItems];
+}
+
+function formatTripCostTotal(costDetails) {
+  const total = getTripCostItems(costDetails).reduce(
+    (sum, item) => sum + parseMoneyAmount(item.amount),
+    0,
+  );
+
+  return total > 0 ? `${new Intl.NumberFormat("ru-RU").format(total)} ₸` : "";
+}
+
+function parseMoneyAmount(value) {
+  const digits = String(value || "").replace(/[^\d]/g, "");
+
+  return digits ? Number(digits) : 0;
 }
 
 function validateDate(value, fieldName) {
@@ -1058,12 +1155,17 @@ function normalizeCalendarStatus(value) {
 
 function buildParticipant(body, tripId) {
   const fullName = requiredText(body.fullName, "fullName", 180);
-  const cityName = requiredText(body.cityName, "cityName", 160);
-  const phone = normalizePhone(requiredText(body.phone, "phone", 32));
-  const email = requiredEmail(body.email);
-  const availableDays = Number(body.availableDays);
+  const applicationType = normalizeApplicationType(body.applicationType);
+  const needsTravelFields = applicationType === "ready" || applicationType === "reserve";
+  const needsContactFields = applicationType !== "pray";
+  const cityName = needsTravelFields ? requiredText(body.cityName, "cityName", 160) : optionalText(body.cityName, 160);
+  const phone = needsContactFields
+    ? normalizePhone(requiredText(body.phone, "phone", 32))
+    : normalizeOptionalPhone(body.phone);
+  const email = needsContactFields ? requiredEmail(body.email) : optionalEmail(body.email);
+  const availableDays = needsTravelFields ? Number(body.availableDays) : 0;
 
-  if (!Number.isInteger(availableDays) || availableDays < 1 || availableDays > 365) {
+  if (needsTravelFields && (!Number.isInteger(availableDays) || availableDays < 1 || availableDays > 365)) {
     throw httpError(400, "availableDays must be a positive integer.");
   }
 
@@ -1076,9 +1178,47 @@ function buildParticipant(body, tripId) {
     phone,
     email,
     donation: optionalText(body.donation, 160),
-    status: "Согласился",
+    applicationType,
+    expenseCommitments: normalizeExpenseCommitments(body.expenseCommitments),
+    comment: optionalText(body.comment, 1000),
+    status: APPLICATION_TYPE_LABELS[applicationType],
     createdAt: new Date().toISOString(),
   };
+}
+
+function normalizeApplicationType(value) {
+  const type = typeof value === "string" ? value.trim() : "";
+
+  if (type === "reserve" || type === "pray" || type === "support") {
+    return type;
+  }
+
+  return "ready";
+}
+
+function normalizeExpenseCommitments(value) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .slice(0, 20)
+    .map((item) => {
+      if (!item || typeof item !== "object") {
+        return null;
+      }
+
+      const id = optionalText(item.id, 120);
+      const name = optionalText(item.name, 160);
+      const amount = optionalText(item.amount, 160);
+
+      if (!id || !name) {
+        return null;
+      }
+
+      return { id, name, amount };
+    })
+    .filter(Boolean);
 }
 
 function normalizePhone(value) {
@@ -1091,6 +1231,14 @@ function normalizePhone(value) {
   return `+7 (${digits.slice(1, 4)}) ${digits.slice(4, 7)}-${digits.slice(7, 9)}-${digits.slice(9, 11)}`;
 }
 
+function normalizeOptionalPhone(value) {
+  if (value === undefined || value === null || value === "") {
+    return "";
+  }
+
+  return normalizePhone(requiredText(value, "phone", 32));
+}
+
 function requiredEmail(value) {
   const email = requiredText(value, "email", 180).toLowerCase();
 
@@ -1099,6 +1247,14 @@ function requiredEmail(value) {
   }
 
   return email;
+}
+
+function optionalEmail(value) {
+  if (value === undefined || value === null || value === "") {
+    return "";
+  }
+
+  return requiredEmail(value);
 }
 
 function buildMinistry(body, existingMinistry = null) {
@@ -1224,22 +1380,23 @@ function normalizeAccountPhone(value) {
 
 function getDashboardMetrics(trips, reports = []) {
   const peopleLimit = trips.reduce((total, trip) => total + Number(trip.peopleLimit || 0), 0);
-  const participantsCount = trips.reduce(
-    (total, trip) => total + Number(trip.participantsCount ?? trip.participants?.length ?? 0),
+  const applicationsCount = trips.reduce(
+    (total, trip) => total + Number(trip.applicationsCount ?? trip.participants?.length ?? 0),
     0,
   );
   const draftReportsCount = reports.filter((report) => report.status !== "completed").length;
 
   return [
     { id: "trips", label: "Активные поездки", value: String(trips.length) },
-    { id: "requests", label: "Новые заявки", value: String(participantsCount) },
+    { id: "requests", label: "Новые заявки", value: String(applicationsCount) },
     { id: "members", label: "Места", value: String(peopleLimit) },
     { id: "reports", label: "Черновики отчетов", value: String(draftReportsCount) },
   ];
 }
 
 function toTripListItem(trip) {
-  const participantsCount = Number(trip.participantsCount ?? trip.participants?.length ?? 0);
+  const participantsCount = getTripReadyParticipantsCount(trip);
+  const applicationsCount = getTripApplicationsCount(trip);
 
   return {
     id: trip.id,
@@ -1252,8 +1409,10 @@ function toTripListItem(trip) {
     endDate: trip.endDate || trip.startDate || trip.date,
     peopleLimit: trip.peopleLimit,
     participantsCount,
+    applicationsCount,
     availableSpots: Math.max(Number(trip.peopleLimit || 0) - participantsCount, 0),
     cost: trip.cost,
+    costDetails: normalizeTripCostDetails(trip.costDetails, trip.cost),
     status: trip.status,
     leaderAccountId: trip.leaderAccountId || "",
     leaderParticipantId: trip.leaderParticipantId || "",
@@ -1263,7 +1422,10 @@ function toTripListItem(trip) {
 }
 
 function toPublicTrip(trip) {
-  const participantsCount = Number(trip.participantsCount || trip.participants?.length || 0);
+  const participantsCount = getTripReadyParticipantsCount(trip);
+  const publicParticipants = (trip.participants || []).filter(
+    (participant) => getParticipantApplicationType(participant) === "ready",
+  );
 
   return {
     id: trip.id,
@@ -1280,9 +1442,10 @@ function toPublicTrip(trip) {
     availableSpots: Math.max(Number(trip.peopleLimit || 0) - participantsCount, 0),
     restrictions: trip.restrictions,
     cost: trip.cost,
+    costDetails: normalizeTripCostDetails(trip.costDetails, trip.cost),
     note: trip.note || "",
     status: trip.status,
-    participants: (trip.participants || []).map(toPublicParticipant),
+    participants: publicParticipants.map(toPublicParticipant),
   };
 }
 
@@ -1291,8 +1454,35 @@ function toPublicParticipant(participant) {
     id: participant.id,
     fullName: participant.fullName,
     cityName: participant.cityName,
+    applicationType: getParticipantApplicationType(participant),
     status: participant.status,
   };
+}
+
+function getTripReadyParticipantsCount(trip) {
+  if (trip.participantsCount !== undefined) {
+    return Number(trip.participantsCount || 0);
+  }
+
+  return (trip.participants || []).filter(
+    (participant) => getParticipantApplicationType(participant) === "ready",
+  ).length;
+}
+
+function getTripApplicationsCount(trip) {
+  if (trip.applicationsCount !== undefined) {
+    return Number(trip.applicationsCount || 0);
+  }
+
+  return Number(trip.participants?.length || 0);
+}
+
+function getParticipantApplicationType(participant) {
+  if (!participant) {
+    return "ready";
+  }
+
+  return normalizeApplicationType(participant.applicationType);
 }
 
 function isRegistrationClosed(value) {
@@ -2343,6 +2533,7 @@ async function readTrips() {
         trips.people_limit,
         trips.restrictions,
         trips.cost,
+        trips.cost_details,
         trips.note,
         trips.status,
         trips.leader_account_id,
@@ -2351,10 +2542,14 @@ async function readTrips() {
         leader_accounts.phone AS leader_phone,
         trips.created_at,
         trips.updated_at,
-        COALESCE(participant_counts.participants_count, 0) AS participants_count
+        COALESCE(participant_counts.participants_count, 0) AS participants_count,
+        COALESCE(participant_counts.applications_count, 0) AS applications_count
       FROM trips
       LEFT JOIN (
-        SELECT trip_id, COUNT(*)::int AS participants_count
+        SELECT
+          trip_id,
+          SUM(CASE WHEN COALESCE(application_type, 'ready') = 'ready' THEN 1 ELSE 0 END)::int AS participants_count,
+          COUNT(*)::int AS applications_count
         FROM trip_participants
         GROUP BY trip_id
       ) participant_counts ON participant_counts.trip_id = trips.id
@@ -2396,6 +2591,7 @@ async function getPublicTrips() {
         trips.people_limit,
         trips.restrictions,
         trips.cost,
+        trips.cost_details,
         trips.note,
         trips.status,
         trips.leader_account_id,
@@ -2404,10 +2600,14 @@ async function getPublicTrips() {
         leader_accounts.phone AS leader_phone,
         trips.created_at,
         trips.updated_at,
-        COALESCE(participant_counts.participants_count, 0) AS participants_count
+        COALESCE(participant_counts.participants_count, 0) AS participants_count,
+        COALESCE(participant_counts.applications_count, 0) AS applications_count
       FROM trips
       LEFT JOIN (
-        SELECT trip_id, COUNT(*)::int AS participants_count
+        SELECT
+          trip_id,
+          SUM(CASE WHEN COALESCE(application_type, 'ready') = 'ready' THEN 1 ELSE 0 END)::int AS participants_count,
+          COUNT(*)::int AS applications_count
         FROM trip_participants
         GROUP BY trip_id
       ) participant_counts ON participant_counts.trip_id = trips.id
@@ -2428,15 +2628,7 @@ async function getPublicTripRecord(id) {
     return null;
   }
 
-  return toPublicTrip({
-    ...trip,
-    participants: (trip.participants || []).map((participant) => ({
-      id: participant.id,
-      fullName: participant.fullName,
-      cityName: participant.cityName,
-      status: participant.status,
-    })),
-  });
+  return toPublicTrip(trip);
 }
 
 async function getTripRecord(id) {
@@ -2457,6 +2649,7 @@ async function getTripRecord(id) {
           trips.people_limit,
           trips.restrictions,
           trips.cost,
+          trips.cost_details,
           trips.note,
           trips.status,
           trips.leader_account_id,
@@ -2478,12 +2671,31 @@ async function getTripRecord(id) {
 
     const trip = rowToTrip(result.rows[0]);
     trip.participants = await getTripParticipants(id);
+    trip.participantsCount = getTripReadyParticipantsCount(trip);
+    trip.applicationsCount = getTripApplicationsCount(trip);
+    trip.availableSpots = Math.max(Number(trip.peopleLimit || 0) - trip.participantsCount, 0);
 
     return trip;
   }
 
   const trip = (await readTrips()).find((item) => item.id === id) || null;
-  return trip ? { ...trip, participants: trip.participants || [] } : null;
+  const normalizedTrip = trip
+    ? {
+        ...trip,
+        costDetails: normalizeTripCostDetails(trip.costDetails, trip.cost),
+        participants: trip.participants || [],
+      }
+    : null;
+
+  if (!normalizedTrip) {
+    return null;
+  }
+
+  normalizedTrip.participantsCount = getTripReadyParticipantsCount(normalizedTrip);
+  normalizedTrip.applicationsCount = getTripApplicationsCount(normalizedTrip);
+  normalizedTrip.availableSpots = Math.max(Number(normalizedTrip.peopleLimit || 0) - normalizedTrip.participantsCount, 0);
+
+  return normalizedTrip;
 }
 
 async function createTripParticipant(participant) {
@@ -2500,10 +2712,13 @@ async function createTripParticipant(participant) {
           phone,
           email,
           donation,
+          application_type,
+          expense_commitments,
+          comment,
           status,
           created_at
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
       `,
       [
         participant.id,
@@ -2514,6 +2729,9 @@ async function createTripParticipant(participant) {
         participant.phone,
         participant.email,
         participant.donation,
+        participant.applicationType,
+        JSON.stringify(normalizeExpenseCommitments(participant.expenseCommitments)),
+        participant.comment,
         participant.status,
         participant.createdAt,
       ],
@@ -2554,6 +2772,7 @@ async function createTripRecord(trip) {
           people_limit,
           restrictions,
           cost,
+          cost_details,
           note,
           status,
           leader_account_id,
@@ -2561,7 +2780,7 @@ async function createTripRecord(trip) {
           created_at,
           updated_at
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
       `,
       [
         trip.id,
@@ -2576,6 +2795,7 @@ async function createTripRecord(trip) {
         trip.peopleLimit,
         trip.restrictions,
         trip.cost,
+        JSON.stringify(normalizeTripCostDetails(trip.costDetails, trip.cost)),
         trip.note,
         trip.status,
         trip.leaderAccountId || null,
@@ -2610,11 +2830,12 @@ async function updateTripRecord(trip) {
           people_limit = $10,
           restrictions = $11,
           cost = $12,
-          note = $13,
-          status = $14,
-          leader_account_id = $15,
-          leader_participant_id = $16,
-          updated_at = $17
+          cost_details = $13,
+          note = $14,
+          status = $15,
+          leader_account_id = $16,
+          leader_participant_id = $17,
+          updated_at = $18
         WHERE id = $1
       `,
       [
@@ -2630,6 +2851,7 @@ async function updateTripRecord(trip) {
         trip.peopleLimit,
         trip.restrictions,
         trip.cost,
+        JSON.stringify(normalizeTripCostDetails(trip.costDetails, trip.cost)),
         trip.note,
         trip.status,
         trip.leaderAccountId || null,
@@ -2711,7 +2933,19 @@ async function getTripParticipants(tripId) {
 
   const result = await databasePool.query(
     `
-      SELECT id, full_name, city_name, available_days, phone, email, donation, status, created_at
+      SELECT
+        id,
+        full_name,
+        city_name,
+        available_days,
+        phone,
+        email,
+        donation,
+        application_type,
+        expense_commitments,
+        comment,
+        status,
+        created_at
       FROM trip_participants
       WHERE trip_id = $1
       ORDER BY created_at DESC
@@ -2727,6 +2961,9 @@ async function getTripParticipants(tripId) {
     phone: row.phone || "",
     email: row.email || "",
     donation: row.donation || "",
+    applicationType: normalizeApplicationType(row.application_type),
+    expenseCommitments: normalizeExpenseCommitments(normalizeJsonArray(row.expense_commitments)),
+    comment: row.comment || "",
     status: row.status,
     createdAt: row.created_at ? new Date(row.created_at).toISOString() : "",
   }));
@@ -2759,6 +2996,7 @@ async function migrateDatabase() {
       people_limit INTEGER NOT NULL,
       restrictions TEXT NOT NULL,
       cost TEXT NOT NULL,
+      cost_details JSONB NOT NULL DEFAULT '{}'::jsonb,
       note TEXT NOT NULL DEFAULT '',
       status TEXT NOT NULL,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -2769,6 +3007,7 @@ async function migrateDatabase() {
   await databasePool.query("ALTER TABLE trips ADD COLUMN IF NOT EXISTS registration_deadline DATE");
   await databasePool.query("ALTER TABLE trips ADD COLUMN IF NOT EXISTS start_date DATE");
   await databasePool.query("ALTER TABLE trips ADD COLUMN IF NOT EXISTS end_date DATE");
+  await databasePool.query("ALTER TABLE trips ADD COLUMN IF NOT EXISTS cost_details JSONB NOT NULL DEFAULT '{}'::jsonb");
   await databasePool.query(`
     UPDATE trips
     SET
@@ -2791,6 +3030,9 @@ async function migrateDatabase() {
       phone TEXT NOT NULL DEFAULT '',
       email TEXT NOT NULL DEFAULT '',
       donation TEXT NOT NULL DEFAULT '',
+      application_type TEXT NOT NULL DEFAULT 'ready',
+      expense_commitments JSONB NOT NULL DEFAULT '[]'::jsonb,
+      comment TEXT NOT NULL DEFAULT '',
       status TEXT NOT NULL DEFAULT 'accepted',
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
@@ -2799,6 +3041,9 @@ async function migrateDatabase() {
   await databasePool.query("ALTER TABLE trip_participants ADD COLUMN IF NOT EXISTS city_name TEXT NOT NULL DEFAULT ''");
   await databasePool.query("ALTER TABLE trip_participants ADD COLUMN IF NOT EXISTS available_days INTEGER NOT NULL DEFAULT 1");
   await databasePool.query("ALTER TABLE trip_participants ADD COLUMN IF NOT EXISTS donation TEXT NOT NULL DEFAULT ''");
+  await databasePool.query("ALTER TABLE trip_participants ADD COLUMN IF NOT EXISTS application_type TEXT NOT NULL DEFAULT 'ready'");
+  await databasePool.query("ALTER TABLE trip_participants ADD COLUMN IF NOT EXISTS expense_commitments JSONB NOT NULL DEFAULT '[]'::jsonb");
+  await databasePool.query("ALTER TABLE trip_participants ADD COLUMN IF NOT EXISTS comment TEXT NOT NULL DEFAULT ''");
 
   await databasePool.query(`
     CREATE TABLE IF NOT EXISTS ministries (
@@ -2877,6 +3122,8 @@ async function migrateDatabase() {
 function rowToTrip(row) {
   const participantsCount =
     row.participants_count === undefined ? undefined : Number(row.participants_count || 0);
+  const applicationsCount =
+    row.applications_count === undefined ? undefined : Number(row.applications_count || 0);
 
   return {
     id: row.id,
@@ -2894,6 +3141,7 @@ function rowToTrip(row) {
       participantsCount === undefined ? undefined : Math.max(Number(row.people_limit || 0) - participantsCount, 0),
     restrictions: row.restrictions,
     cost: row.cost,
+    costDetails: normalizeTripCostDetails(row.cost_details, row.cost),
     note: row.note || "",
     status: row.status,
     leaderAccountId: row.leader_account_id || "",
@@ -2902,6 +3150,7 @@ function rowToTrip(row) {
     leaderPhone: row.leader_phone || "",
     createdAt: row.created_at ? new Date(row.created_at).toISOString() : "",
     updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : "",
+    applicationsCount,
   };
 }
 

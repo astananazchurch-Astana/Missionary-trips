@@ -2,6 +2,8 @@ import { type FormEvent, useEffect, useMemo, useState } from "react";
 import {
   ArrowLeft,
   CalendarDays,
+  CheckCircle2,
+  ChevronRight,
   ClipboardList,
   Crown,
   Eye,
@@ -10,7 +12,10 @@ import {
   LayoutDashboard,
   LockKeyhole,
   LogOut,
+  Mail,
   MapPin,
+  MessageSquare,
+  Minus,
   MoreVertical,
   Pencil,
   Phone,
@@ -20,6 +25,7 @@ import {
   Trash2,
   UserRound,
   UsersRound,
+  Wallet,
   X,
 } from "lucide-react";
 import {
@@ -32,6 +38,10 @@ import {
   type CreateTripInput,
   type MinistryAccess,
   type Trip,
+  type TripApplicationType,
+  type TripCostDetails,
+  type TripCostOtherItem,
+  type TripExpenseCommitment,
   type TripParticipant,
   type TripReport,
   assignTripLeader,
@@ -81,6 +91,7 @@ type TripFormState = {
   peopleLimit: string;
   restrictions: string;
   cost: string;
+  costDetails: TripCostDetails;
   note: string;
 };
 
@@ -95,6 +106,26 @@ type LeaderFormState = {
   roleId: string;
 };
 
+const applicationTypeLabels: Record<TripApplicationType, string> = {
+  ready: "Готов поехать",
+  reserve: "Готов поехать (резерв)",
+  pray: "Буду молиться",
+  support: "Поддержу финансово",
+};
+
+const costItemLabels = {
+  travel: "Дорога",
+  lodging: "Проживание",
+  food: "Еда",
+};
+
+const createEmptyCostDetails = (): TripCostDetails => ({
+  travel: "",
+  lodging: "",
+  food: "",
+  other: [],
+});
+
 const emptyForm: TripFormState = {
   countryCode: "",
   cityName: "",
@@ -105,6 +136,7 @@ const emptyForm: TripFormState = {
   peopleLimit: "",
   restrictions: "",
   cost: "",
+  costDetails: createEmptyCostDetails(),
   note: "",
 };
 
@@ -170,6 +202,7 @@ export function AdminPanel({ homeHref, onHome, onLogout, user }: AdminPanelProps
   const [cities, setCities] = useState<CityOption[]>([]);
   const [selectedTrip, setSelectedTrip] = useState<Trip | null>(null);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
+  const [isCostPanelOpen, setIsCostPanelOpen] = useState(false);
   const [editingTrip, setEditingTrip] = useState<Trip | null>(null);
   const [form, setForm] = useState<TripFormState>(emptyForm);
   const [error, setError] = useState("");
@@ -345,7 +378,8 @@ export function AdminPanel({ homeHref, onHome, onLogout, user }: AdminPanelProps
       endDate: form.endDate,
       peopleLimit: Number(form.peopleLimit),
       restrictions: form.restrictions,
-      cost: form.cost,
+      cost: getCostSummary(form.costDetails),
+      costDetails: form.costDetails,
       note: form.note,
     };
 
@@ -394,6 +428,7 @@ export function AdminPanel({ homeHref, onHome, onLogout, user }: AdminPanelProps
     setForm(emptyForm);
     setCities([]);
     setModalError("");
+    setIsCostPanelOpen(false);
     setIsCreateOpen(true);
   };
 
@@ -405,6 +440,7 @@ export function AdminPanel({ homeHref, onHome, onLogout, user }: AdminPanelProps
     setEditingTrip(trip);
     setForm(tripToForm(trip));
     setModalError("");
+    setIsCostPanelOpen(false);
     setIsCreateOpen(true);
   };
 
@@ -414,6 +450,7 @@ export function AdminPanel({ homeHref, onHome, onLogout, user }: AdminPanelProps
     setForm(emptyForm);
     setCities([]);
     setModalError("");
+    setIsCostPanelOpen(false);
   };
 
   const handleDeleteTrip = async (trip: Trip) => {
@@ -481,7 +518,7 @@ export function AdminPanel({ homeHref, onHome, onLogout, user }: AdminPanelProps
       await deleteTripParticipant(selectedTrip.id, participantId);
       setSelectedTrip((currentTrip) => removeParticipantFromSelectedTrip(currentTrip, participantId));
       setTrips((currentTrips) => {
-        const nextTrips = removeParticipantFromTripList(currentTrips, selectedTrip.id);
+        const nextTrips = removeParticipantFromTripList(currentTrips, selectedTrip.id, participantToDelete);
 
         setMetrics(buildMetrics(nextTrips));
         return nextTrips;
@@ -679,6 +716,71 @@ export function AdminPanel({ homeHref, onHome, onLogout, user }: AdminPanelProps
     }));
   };
 
+  const updateCostField = (field: keyof Omit<TripCostDetails, "other">, value: string) => {
+    setForm((currentForm) => {
+      const costDetails = {
+        ...currentForm.costDetails,
+        [field]: value,
+      };
+
+      return {
+        ...currentForm,
+        costDetails,
+        cost: getCostSummary(costDetails),
+      };
+    });
+  };
+
+  const addOtherCostItem = () => {
+    setForm((currentForm) => {
+      const costDetails = {
+        ...currentForm.costDetails,
+        other: [
+          ...currentForm.costDetails.other,
+          { id: crypto.randomUUID(), name: "", amount: "" },
+        ],
+      };
+
+      return {
+        ...currentForm,
+        costDetails,
+        cost: getCostSummary(costDetails),
+      };
+    });
+  };
+
+  const updateOtherCostItem = (id: string, field: keyof TripCostOtherItem, value: string) => {
+    setForm((currentForm) => {
+      const costDetails = {
+        ...currentForm.costDetails,
+        other: currentForm.costDetails.other.map((item) =>
+          item.id === id ? { ...item, [field]: value } : item,
+        ),
+      };
+
+      return {
+        ...currentForm,
+        costDetails,
+        cost: getCostSummary(costDetails),
+      };
+    });
+  };
+
+  const removeOtherCostItem = (id: string) => {
+    setForm((currentForm) => {
+      const costDetails = {
+        ...currentForm.costDetails,
+        other: currentForm.costDetails.other.filter((item) => item.id !== id),
+      };
+
+      return {
+        ...currentForm,
+        costDetails,
+        cost: getCostSummary(costDetails),
+      };
+    });
+  };
+
   const openTripsSection = () => {
     if (!canOpenTripsSection) {
       return;
@@ -695,6 +797,7 @@ export function AdminPanel({ homeHref, onHome, onLogout, user }: AdminPanelProps
     setActiveSection("calendar");
     setSelectedTrip(null);
     setIsCreateOpen(false);
+    setIsCostPanelOpen(false);
     setEditingTrip(null);
     setViewingParticipant(null);
     setParticipantToDelete(null);
@@ -709,6 +812,7 @@ export function AdminPanel({ homeHref, onHome, onLogout, user }: AdminPanelProps
     setActiveSection("accounts");
     setSelectedTrip(null);
     setIsCreateOpen(false);
+    setIsCostPanelOpen(false);
     setEditingTrip(null);
     setViewingParticipant(null);
     setParticipantToDelete(null);
@@ -723,6 +827,7 @@ export function AdminPanel({ homeHref, onHome, onLogout, user }: AdminPanelProps
     setActiveSection("reports");
     setSelectedTrip(null);
     setIsCreateOpen(false);
+    setIsCostPanelOpen(false);
     setEditingTrip(null);
     setViewingParticipant(null);
     setParticipantToDelete(null);
@@ -837,26 +942,38 @@ export function AdminPanel({ homeHref, onHome, onLogout, user }: AdminPanelProps
             ) : null}
 
             {selectedTrip ? (
-              <TripDetails
-                trip={selectedTrip}
-                isDeleting={isDeleting}
-                canEdit={canUpdateTrip}
-                canDelete={canDeleteTrip}
-                canViewParticipants={canViewTripParticipants}
-                canDeleteParticipants={canDeleteParticipants}
-                canAssignLeader={canAssignLeader}
-                canFillReport={canUseLeaderTrips && selectedTrip.leaderAccountId === user.id}
-                canCreateReport={canCreateReports}
-                canUpdateReport={canUpdateReports}
-                onLogout={onLogout}
-                onRequestLeader={openLeaderModal}
-                onReportSaved={handleReportSaved}
-                onBack={handleBackToTrips}
-                onDelete={() => handleDeleteTrip(selectedTrip)}
-                onEdit={() => openEditModal(selectedTrip)}
-                onViewParticipant={setViewingParticipant}
-                onRequestDeleteParticipant={setParticipantToDelete}
-              />
+              viewingParticipant ? (
+                <ParticipantDetailPage
+                  trip={selectedTrip}
+                  participant={viewingParticipant}
+                  canAssignLeader={canAssignLeader}
+                  canDeleteParticipants={canDeleteParticipants}
+                  onBack={() => setViewingParticipant(null)}
+                  onRequestLeader={openLeaderModal}
+                  onRequestDeleteParticipant={setParticipantToDelete}
+                />
+              ) : (
+                <TripDetails
+                  trip={selectedTrip}
+                  isDeleting={isDeleting}
+                  canEdit={canUpdateTrip}
+                  canDelete={canDeleteTrip}
+                  canViewParticipants={canViewTripParticipants}
+                  canDeleteParticipants={canDeleteParticipants}
+                  canAssignLeader={canAssignLeader}
+                  canFillReport={canUseLeaderTrips && selectedTrip.leaderAccountId === user.id}
+                  canCreateReport={canCreateReports}
+                  canUpdateReport={canUpdateReports}
+                  onLogout={onLogout}
+                  onRequestLeader={openLeaderModal}
+                  onReportSaved={handleReportSaved}
+                  onBack={handleBackToTrips}
+                  onDelete={() => handleDeleteTrip(selectedTrip)}
+                  onEdit={() => openEditModal(selectedTrip)}
+                  onViewParticipant={setViewingParticipant}
+                  onRequestDeleteParticipant={setParticipantToDelete}
+                />
+              )
             ) : (
               <>
                 <MetricsGrid metrics={metrics} />
@@ -871,6 +988,7 @@ export function AdminPanel({ homeHref, onHome, onLogout, user }: AdminPanelProps
 
       {isCreateOpen ? (
         <div className="modal-backdrop" role="presentation">
+          <div className={`trip-modal-layout${isCostPanelOpen ? " trip-modal-layout--with-panel" : ""}`}>
           <section className="trip-modal" role="dialog" aria-modal="true" aria-label="Новая поездка">
             <div className="trip-modal__header">
               <div>
@@ -999,15 +1117,18 @@ export function AdminPanel({ homeHref, onHome, onLogout, user }: AdminPanelProps
                 />
               </label>
 
-              <label className="form-field">
+              <div className="form-field">
                 <span>Стоимость</span>
-                <input
-                  required
-                  value={form.cost}
-                  onChange={(event) => updateForm("cost", event.target.value)}
-                  placeholder="Например, 250 000 ₸"
-                />
-              </label>
+                <button
+                  className="cost-summary-button"
+                  type="button"
+                  onClick={() => setIsCostPanelOpen(true)}
+                >
+                  <Wallet size={18} aria-hidden="true" />
+                  <span>{getCostSummary(form.costDetails) || "Добавить стоимость"}</span>
+                  <ChevronRight size={18} aria-hidden="true" />
+                </button>
+              </div>
 
               <label className="form-field form-field--wide">
                 <span>Примечание</span>
@@ -1036,14 +1157,19 @@ export function AdminPanel({ homeHref, onHome, onLogout, user }: AdminPanelProps
               </div>
             </form>
           </section>
+          {isCostPanelOpen ? (
+            <CostDetailsPanel
+              costDetails={form.costDetails}
+              total={getCostSummary(form.costDetails)}
+              onClose={() => setIsCostPanelOpen(false)}
+              onChange={updateCostField}
+              onAddOther={addOtherCostItem}
+              onChangeOther={updateOtherCostItem}
+              onRemoveOther={removeOtherCostItem}
+            />
+          ) : null}
+          </div>
         </div>
-      ) : null}
-
-      {viewingParticipant ? (
-        <ParticipantViewModal
-          participant={viewingParticipant}
-          onClose={() => setViewingParticipant(null)}
-        />
       ) : null}
 
       {participantToDelete && canDeleteParticipants ? (
@@ -1104,6 +1230,119 @@ function MetricsGrid({ metrics }: MetricsGridProps) {
   );
 }
 
+type CostDetailsPanelProps = {
+  costDetails: TripCostDetails;
+  total: string;
+  onClose: () => void;
+  onChange: (field: keyof Omit<TripCostDetails, "other">, value: string) => void;
+  onAddOther: () => void;
+  onChangeOther: (id: string, field: keyof TripCostOtherItem, value: string) => void;
+  onRemoveOther: (id: string) => void;
+};
+
+function CostDetailsPanel({
+  costDetails,
+  total,
+  onClose,
+  onChange,
+  onAddOther,
+  onChangeOther,
+  onRemoveOther,
+}: CostDetailsPanelProps) {
+  return (
+    <aside className="cost-side-panel" aria-label="Детали стоимости">
+      <div className="trip-modal__header">
+        <div>
+          <span className="admin-kicker">Стоимость на человека</span>
+          <h2>Подробности расходов</h2>
+        </div>
+        <button className="icon-button" type="button" aria-label="Закрыть" onClick={onClose}>
+          <X size={21} aria-hidden="true" />
+        </button>
+      </div>
+
+      <div className="cost-fields">
+        <label className="form-field">
+          <span>{costItemLabels.travel}</span>
+          <input
+            value={costDetails.travel}
+            onChange={(event) => onChange("travel", event.target.value)}
+            placeholder="Например, 80 000 ₸"
+          />
+        </label>
+
+        <label className="form-field">
+          <span>{costItemLabels.lodging}</span>
+          <input
+            value={costDetails.lodging}
+            onChange={(event) => onChange("lodging", event.target.value)}
+            placeholder="Например, 60 000 ₸"
+          />
+        </label>
+
+        <label className="form-field">
+          <span>{costItemLabels.food}</span>
+          <input
+            value={costDetails.food}
+            onChange={(event) => onChange("food", event.target.value)}
+            placeholder="Например, 45 000 ₸"
+          />
+        </label>
+      </div>
+
+      <div className="cost-side-panel__section">
+        <div className="cost-side-panel__topline">
+          <strong>Прочее</strong>
+          <button className="button button--secondary button--neutral cost-add-button" type="button" onClick={onAddOther}>
+            <Plus size={17} aria-hidden="true" />
+            Добавить
+          </button>
+        </div>
+
+        {costDetails.other.length ? (
+          <div className="cost-other-list">
+            {costDetails.other.map((item) => (
+              <div className="cost-other-item" key={item.id}>
+                <label className="form-field">
+                  <span>Название</span>
+                  <input
+                    value={item.name}
+                    onChange={(event) => onChangeOther(item.id, "name", event.target.value)}
+                    placeholder="Например, страховка"
+                  />
+                </label>
+                <label className="form-field">
+                  <span>Сумма</span>
+                  <input
+                    value={item.amount}
+                    onChange={(event) => onChangeOther(item.id, "amount", event.target.value)}
+                    placeholder="Например, 10 000 ₸"
+                  />
+                </label>
+                <button
+                  className="icon-button cost-other-item__remove"
+                  type="button"
+                  aria-label="Удалить расход"
+                  onClick={() => onRemoveOther(item.id)}
+                >
+                  <Minus size={18} aria-hidden="true" />
+                </button>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="cost-side-panel__empty">Дополнительных расходов пока нет.</p>
+        )}
+      </div>
+
+      <div className="cost-total-card">
+        <span>Итого на одного человека</span>
+        <strong>{total || "0 ₸"}</strong>
+      </div>
+    </aside>
+  );
+}
+
 function TripsTable({ trips, isLoadingTrip, onOpenTrip }: TripsTableProps) {
   return (
     <section className="admin-panel trips-admin-panel">
@@ -1140,7 +1379,7 @@ function TripsTable({ trips, isLoadingTrip, onOpenTrip }: TripsTableProps) {
               <span role="cell">до {formatDate(shortDate(trip.registrationDeadline || trip.date))}</span>
               <span role="cell">{formatDateRange(shortDate(trip.startDate || trip.date), shortDate(trip.endDate || trip.date))}</span>
               <span role="cell">{getAvailableSpots(trip)} из {trip.peopleLimit}</span>
-              <span role="cell">{trip.cost}</span>
+              <span role="cell">{getCostSummary(trip.costDetails) || trip.cost}</span>
             </button>
           ))}
         </div>
@@ -1197,6 +1436,16 @@ function TripDetails({
 }: TripDetailsProps) {
   const participants = trip.participants || [];
   const [openParticipantMenu, setOpenParticipantMenu] = useState<ParticipantMenuState | null>(null);
+  const [participantFilters, setParticipantFilters] = useState<TripApplicationType[]>([
+    "ready",
+    "reserve",
+    "pray",
+    "support",
+  ]);
+  const filteredParticipants = participants.filter((participant) =>
+    participantFilters.includes(getApplicationType(participant)),
+  );
+  const costItems = getCostItems(trip.costDetails);
 
   useEffect(() => {
     if (!openParticipantMenu) {
@@ -1213,6 +1462,14 @@ function TripDetails({
       window.removeEventListener("scroll", closeMenu, true);
     };
   }, [openParticipantMenu]);
+
+  const toggleParticipantFilter = (type: TripApplicationType, isChecked: boolean) => {
+    setParticipantFilters((currentFilters) =>
+      isChecked
+        ? [...new Set([...currentFilters, type])]
+        : currentFilters.filter((currentType) => currentType !== type),
+    );
+  };
 
   return (
     <section className="admin-panel trip-detail">
@@ -1267,14 +1524,32 @@ function TripDetails({
           <dd>{getAvailableSpots(trip)} из {trip.peopleLimit}</dd>
         </div>
         <div>
-          <dt>Стоимость</dt>
-          <dd>{trip.cost}</dd>
+          <dt>Стоимость на человека</dt>
+          <dd>{getCostSummary(trip.costDetails) || trip.cost}</dd>
+        </div>
+        <div>
+          <dt>Общая сумма поездки</dt>
+          <dd>{getTripTotalSummary(trip)}</dd>
         </div>
         <div>
           <dt>Ограничения</dt>
           <dd>{trip.restrictions}</dd>
         </div>
       </dl>
+
+      {costItems.length ? (
+        <div className="trip-detail__section">
+          <h3>Расходы на одного человека</h3>
+          <div className="cost-breakdown-list">
+            {costItems.map((item) => (
+              <div className="cost-breakdown-item" key={item.id}>
+                <span>{item.name}</span>
+                <strong>{item.amount}</strong>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
 
       <div className="trip-detail__section">
         <h3>Описание</h3>
@@ -1295,10 +1570,28 @@ function TripDetails({
             <h3>Участники поездки</h3>
             <p>Здесь будут отображаться люди, которые подтвердили участие в этой поездке.</p>
           </div>
-          <span className="status-pill">{participants.length} согласились</span>
+          <span className="status-pill">{filteredParticipants.length} из {participants.length}</span>
         </div>
 
-        {participants.length ? (
+        <div className="participant-filters" aria-label="Фильтр заявок">
+          {(Object.keys(applicationTypeLabels) as TripApplicationType[]).map((type) => {
+            const count = participants.filter((participant) => getApplicationType(participant) === type).length;
+
+            return (
+              <label className="participant-filter" key={type}>
+                <input
+                  type="checkbox"
+                  checked={participantFilters.includes(type)}
+                  onChange={(event) => toggleParticipantFilter(type, event.target.checked)}
+                />
+                <span>{applicationTypeLabels[type]}</span>
+                <strong>{count}</strong>
+              </label>
+            );
+          })}
+        </div>
+
+        {filteredParticipants.length ? (
           <div
             className="participants-table"
             role="table"
@@ -1307,21 +1600,25 @@ function TripDetails({
             <div className="participants-table__row participants-table__row--head" role="row">
               <span role="columnheader">Имя</span>
               <span role="columnheader">Город</span>
-              <span role="columnheader">Дней</span>
+              <span role="columnheader">Формат</span>
               <span role="columnheader">Телефон</span>
               <span role="columnheader">Пожертвование</span>
-              <span role="columnheader">Статус</span>
+              <span role="columnheader">Оплата</span>
               <span className="participant-leader-cell participant-leader-cell--head" role="columnheader" aria-label="Лидер" />
               <span className="participant-actions participant-actions--head" role="columnheader" aria-label="Действия" />
             </div>
-            {participants.map((participant) => (
+            {filteredParticipants.map((participant) => (
               <div className="participants-table__row" role="row" key={participant.id}>
-                <strong role="cell">{participant.fullName}</strong>
+                <strong role="cell">
+                  <button className="participant-name-button" type="button" onClick={() => onViewParticipant(participant)}>
+                    {participant.fullName}
+                  </button>
+                </strong>
                 <span role="cell">{participant.cityName || "—"}</span>
-                <span role="cell">{participant.availableDays ? `${participant.availableDays}` : "—"}</span>
+                <span role="cell">{applicationTypeLabels[getApplicationType(participant)]}</span>
                 <span role="cell">{participant.phone || "—"}</span>
                 <span role="cell">{participant.donation || "—"}</span>
-                <span role="cell">{participant.status}</span>
+                <span role="cell">{getParticipantExpenseSummary(participant)}</span>
                 <div className="participant-leader-cell" role="cell">
                   {canAssignLeader ? (
                     <button
@@ -1422,6 +1719,113 @@ function TripDetails({
           onLogout={onLogout}
           onReportSaved={onReportSaved}
         />
+      ) : null}
+    </section>
+  );
+}
+
+type ParticipantDetailPageProps = {
+  trip: Trip;
+  participant: TripParticipant;
+  canAssignLeader: boolean;
+  canDeleteParticipants: boolean;
+  onBack: () => void;
+  onRequestLeader: (participant: TripParticipant) => void;
+  onRequestDeleteParticipant: (participant: TripParticipant) => void;
+};
+
+function ParticipantDetailPage({
+  trip,
+  participant,
+  canAssignLeader,
+  canDeleteParticipants,
+  onBack,
+  onRequestLeader,
+  onRequestDeleteParticipant,
+}: ParticipantDetailPageProps) {
+  const commitments = participant.expenseCommitments || [];
+
+  return (
+    <section className="admin-panel trip-detail participant-detail-page">
+      <button className="detail-back" type="button" onClick={onBack}>
+        <ArrowLeft size={18} aria-hidden="true" />
+        К заявкам поездки
+      </button>
+
+      <div className="trip-detail__header">
+        <div>
+          <span className="admin-kicker">Заявка участника</span>
+          <h2>{participant.fullName}</h2>
+        </div>
+        <div className="trip-detail__actions">
+          <span className="status-pill">{applicationTypeLabels[getApplicationType(participant)]}</span>
+          {canAssignLeader ? (
+            <button className="button button--secondary button--neutral" type="button" onClick={() => onRequestLeader(participant)}>
+              <Crown size={18} aria-hidden="true" />
+              Назначить лидером
+            </button>
+          ) : null}
+          {canDeleteParticipants ? (
+            <button className="button button--danger" type="button" onClick={() => onRequestDeleteParticipant(participant)}>
+              <Trash2 size={18} aria-hidden="true" />
+              Удалить
+            </button>
+          ) : null}
+        </div>
+      </div>
+
+      <dl className="trip-detail__grid">
+        <div>
+          <dt>Поездка</dt>
+          <dd>{trip.cityName}, {trip.countryName}</dd>
+        </div>
+        <div>
+          <dt>Город</dt>
+          <dd>{participant.cityName || "—"}</dd>
+        </div>
+        <div>
+          <dt>Дней готов поехать</dt>
+          <dd>{participant.availableDays || "—"}</dd>
+        </div>
+        <div>
+          <dt>Телефон</dt>
+          <dd>{participant.phone || "—"}</dd>
+        </div>
+        <div>
+          <dt>Email</dt>
+          <dd>{participant.email || "—"}</dd>
+        </div>
+        <div>
+          <dt>Пожертвование</dt>
+          <dd>{participant.donation || "—"}</dd>
+        </div>
+        <div>
+          <dt>Дата заявки</dt>
+          <dd>{formatDateTime(participant.createdAt)}</dd>
+        </div>
+      </dl>
+
+      <div className="trip-detail__section">
+        <h3>Выбранные расходы</h3>
+        {commitments.length ? (
+          <div className="cost-breakdown-list">
+            {commitments.map((item) => (
+              <div className="cost-breakdown-item" key={item.id}>
+                <span>{item.name}</span>
+                <strong>{item.amount || "—"}</strong>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p>Участник не отметил расходы.</p>
+        )}
+      </div>
+
+      {participant.comment ? (
+        <div className="trip-detail__section">
+          <h3>Комментарий</h3>
+          <p>{participant.comment}</p>
+        </div>
       ) : null}
     </section>
   );
@@ -1663,6 +2067,7 @@ function tripToForm(trip: Trip): TripFormState {
     peopleLimit: String(trip.peopleLimit),
     restrictions: trip.restrictions || "",
     cost: trip.cost,
+    costDetails: normalizeCostDetails(trip.costDetails, trip.cost),
     note: trip.note || "",
   };
 }
@@ -1673,30 +2078,34 @@ function removeParticipantFromSelectedTrip(trip: Trip | null, participantId: str
   }
 
   const participants = (trip.participants || []).filter((participant) => participant.id !== participantId);
-  const participantsCount = participants.length;
+  const participantsCount = participants.filter((participant) => getApplicationType(participant) === "ready").length;
 
   return {
     ...trip,
     participants,
     participantsCount,
+    applicationsCount: participants.length,
     availableSpots: Math.max(Number(trip.peopleLimit || 0) - participantsCount, 0),
   };
 }
 
-function removeParticipantFromTripList(trips: Trip[], tripId: string) {
+function removeParticipantFromTripList(trips: Trip[], tripId: string, participant: TripParticipant) {
   return trips.map((trip) => {
     if (trip.id !== tripId) {
       return trip;
     }
 
+    const shouldUpdateReadyCount = getApplicationType(participant) === "ready";
     const participantsCount = Math.max(
-      Number(trip.participantsCount ?? trip.participants?.length ?? 0) - 1,
+      Number(trip.participantsCount ?? trip.participants?.length ?? 0) - (shouldUpdateReadyCount ? 1 : 0),
       0,
     );
+    const applicationsCount = Math.max(Number(trip.applicationsCount ?? trip.participants?.length ?? 0) - 1, 0);
 
     return {
       ...trip,
       participantsCount,
+      applicationsCount,
       availableSpots: Math.max(Number(trip.peopleLimit || 0) - participantsCount, 0),
     };
   });
@@ -1704,20 +2113,24 @@ function removeParticipantFromTripList(trips: Trip[], tripId: string) {
 
 function buildMetrics(trips: Trip[]): AdminMetric[] {
   const peopleLimit = trips.reduce((total, trip) => total + Number(trip.peopleLimit || 0), 0);
-  const participantsCount = trips.reduce(
-    (total, trip) => total + Number(trip.participantsCount ?? trip.participants?.length ?? 0),
+  const applicationsCount = trips.reduce(
+    (total, trip) => total + Number(trip.applicationsCount ?? trip.participants?.length ?? 0),
     0,
   );
 
   return [
     { id: "trips", label: "Активные поездки", value: String(trips.length) },
-    { id: "requests", label: "Новые заявки", value: String(participantsCount) },
+    { id: "requests", label: "Новые заявки", value: String(applicationsCount) },
     { id: "members", label: "Места", value: String(peopleLimit) },
     { id: "reports", label: "Черновики отчетов", value: "0" },
   ];
 }
 
 function validateTripForm(form: TripFormState) {
+  if (getCostTotal(form.costDetails) <= 0) {
+    return "Укажите сумму хотя бы для одного пункта расходов.";
+  }
+
   if (form.registrationDeadline > form.startDate) {
     return "Дата закрытия регистрации не может быть позже начала поездки.";
   }
@@ -1727,6 +2140,77 @@ function validateTripForm(form: TripFormState) {
   }
 
   return "";
+}
+
+function normalizeCostDetails(costDetails: Trip["costDetails"], fallbackCost = ""): TripCostDetails {
+  return {
+    travel: costDetails?.travel || fallbackCost || "",
+    lodging: costDetails?.lodging || "",
+    food: costDetails?.food || "",
+    other: (costDetails?.other || []).map((item) => ({
+      id: item.id || crypto.randomUUID(),
+      name: item.name || "",
+      amount: item.amount || "",
+    })),
+  };
+}
+
+function getCostItems(costDetails?: TripCostDetails): TripExpenseCommitment[] {
+  if (!costDetails) {
+    return [];
+  }
+
+  const baseItems: TripExpenseCommitment[] = [
+    { id: "travel", name: costItemLabels.travel, amount: costDetails.travel },
+    { id: "lodging", name: costItemLabels.lodging, amount: costDetails.lodging },
+    { id: "food", name: costItemLabels.food, amount: costDetails.food },
+  ].filter((item) => item.amount.trim());
+
+  const otherItems = costDetails.other
+    .filter((item) => item.amount.trim())
+    .map((item) => ({
+      id: `other:${item.id}`,
+      name: item.name.trim() || "Прочее",
+      amount: item.amount.trim(),
+    }));
+
+  return [...baseItems, ...otherItems];
+}
+
+function getCostTotal(costDetails?: TripCostDetails) {
+  return getCostItems(costDetails).reduce((total, item) => total + parseMoneyAmount(item.amount), 0);
+}
+
+function getCostSummary(costDetails?: TripCostDetails) {
+  const total = getCostTotal(costDetails);
+
+  return total > 0 ? `${new Intl.NumberFormat("ru-RU").format(total)} ₸` : "";
+}
+
+function parseMoneyAmount(value: string) {
+  const digits = value.replace(/[^\d]/g, "");
+
+  return digits ? Number(digits) : 0;
+}
+
+function getTripTotalSummary(trip: Trip) {
+  const total = getCostTotal(trip.costDetails) * Number(trip.peopleLimit || 0);
+
+  return total > 0 ? `${new Intl.NumberFormat("ru-RU").format(total)} ₸` : "—";
+}
+
+function getApplicationType(participant: TripParticipant): TripApplicationType {
+  return participant.applicationType || "ready";
+}
+
+function getParticipantExpenseSummary(participant: TripParticipant) {
+  const commitments = participant.expenseCommitments || [];
+
+  if (!commitments.length) {
+    return "—";
+  }
+
+  return commitments.map((item) => `${item.name}${item.amount ? `: ${item.amount}` : ""}`).join(", ");
 }
 
 function countryFlag(code: string) {

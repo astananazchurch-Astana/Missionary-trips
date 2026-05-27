@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "node scripts/dev.mjs",
     "dev:frontend": "vite --host 127.0.0.1",
-    "start": "node server/index.js",
+    "start": "node scripts/dev.mjs",
     "server": "node server/index.js",
     "dev:backend": "node --watch server/index.js",
     "hash:password": "node server/hash-password.js",

@@ -69,6 +69,27 @@ export type StaffAccount = {
   updatedAt?: string;
 };
 
+export type TripCostOtherItem = {
+  id: string;
+  name: string;
+  amount: string;
+};
+
+export type TripCostDetails = {
+  travel: string;
+  lodging: string;
+  food: string;
+  other: TripCostOtherItem[];
+};
+
+export type TripExpenseCommitment = {
+  id: string;
+  name: string;
+  amount: string;
+};
+
+export type TripApplicationType = "ready" | "reserve" | "pray" | "support";
+
 export type TripReportReview = {
   participantId: string;
   fullName: string;
@@ -104,6 +125,7 @@ export type Trip = {
   peopleLimit: number;
   restrictions?: string;
   cost: string;
+  costDetails?: TripCostDetails;
   note?: string;
   status: string;
   leaderAccountId?: string;
@@ -112,6 +134,7 @@ export type Trip = {
   leaderPhone?: string;
   createdAt?: string;
   participantsCount?: number;
+  applicationsCount?: number;
   availableSpots?: number;
   participants?: TripParticipant[];
   report?: TripReport | null;
@@ -143,11 +166,14 @@ export type TripParticipant = {
   phone?: string;
   email?: string;
   donation?: string;
+  applicationType?: TripApplicationType;
+  expenseCommitments?: TripExpenseCommitment[];
+  comment?: string;
   status: string;
   createdAt?: string;
 };
 
-export type PublicTripParticipant = Pick<TripParticipant, "id" | "fullName" | "cityName" | "status">;
+export type PublicTripParticipant = Pick<TripParticipant, "id" | "fullName" | "cityName" | "applicationType" | "status">;
 
 export type PublicTrip = Pick<
   Trip,
@@ -165,6 +191,7 @@ export type PublicTrip = Pick<
   | "availableSpots"
   | "restrictions"
   | "cost"
+  | "costDetails"
   | "note"
   | "status"
 > & {
@@ -181,16 +208,20 @@ export type CreateTripInput = {
   peopleLimit: number;
   restrictions: string;
   cost: string;
+  costDetails: TripCostDetails;
   note: string;
 };
 
 export type TripApplicationInput = {
   fullName: string;
-  cityName: string;
-  availableDays: number;
-  phone: string;
-  email: string;
-  donation: string;
+  applicationType: TripApplicationType;
+  cityName?: string;
+  availableDays?: number;
+  phone?: string;
+  email?: string;
+  donation?: string;
+  expenseCommitments?: TripExpenseCommitment[];
+  comment?: string;
 };
 
 export type DashboardSummary = {
