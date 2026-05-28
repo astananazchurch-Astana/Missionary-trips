@@ -47,6 +47,13 @@ const DEFAULT_CALENDAR_DATA_FILE = process.env.VERCEL
   ? "/tmp/missionary-calendar-events.json"
   : "server/data/calendar-events.json";
 const CALENDAR_DATA_FILE = resolve(process.cwd(), process.env.CALENDAR_DATA_FILE || DEFAULT_CALENDAR_DATA_FILE);
+const DEFAULT_CALENDAR_PLACES_DATA_FILE = process.env.VERCEL
+  ? "/tmp/missionary-calendar-places.json"
+  : "server/data/calendar-places.json";
+const CALENDAR_PLACES_DATA_FILE = resolve(
+  process.cwd(),
+  process.env.CALENDAR_PLACES_DATA_FILE || DEFAULT_CALENDAR_PLACES_DATA_FILE,
+);
 const ACCESS_ACTIONS = [
   { id: "view", label: "Просмотр" },
   { id: "create", label: "Создать" },
@@ -317,8 +324,32 @@ export default async function handleRequest(request, response) {
         return;
       }
 
-      const events = filterCalendarEventsByRange(await readCalendarEvents(), url.searchParams);
+      const [calendarEvents, trips] = await Promise.all([readCalendarEvents(), readTrips()]);
+      const events = filterCalendarEventsByRange(
+        [...calendarEvents, ...trips.flatMap(toCalendarTripEvents)],
+        url.searchParams,
+      );
       sendJson(response, 200, { events }, origin);
+      return;
+    }
+
+    if (request.method === "GET" && url.pathname === "/api/admin/calendar/places") {
+      if (!(await authorizeRequest(request, response, origin, "calendar:view"))) {
+        return;
+      }
+
+      sendJson(response, 200, { places: await readCalendarPlaces() }, origin);
+      return;
+    }
+
+    if (request.method === "POST" && url.pathname === "/api/admin/calendar/places") {
+      if (!(await authorizeRequest(request, response, origin, "calendar:create"))) {
+        return;
+      }
+
+      const place = buildCalendarPlace(await readJsonBody(request));
+      await createCalendarPlaceRecord(place);
+      sendJson(response, 201, { place }, origin);
       return;
     }
 
@@ -421,6 +452,7 @@ export default async function handleRequest(request, response) {
     const tripReportCompleteMatch = url.pathname.match(/^\/api\/admin\/trips\/([^/]+)\/report\/complete$/);
     const reportMatch = url.pathname.match(/^\/api\/admin\/reports\/([^/]+)$/);
     const calendarEventMatch = url.pathname.match(/^\/api\/admin\/calendar\/events\/([^/]+)$/);
+    const calendarPlaceMatch = url.pathname.match(/^\/api\/admin\/calendar\/places\/([^/]+)$/);
     const tripMatch = url.pathname.match(/^\/api\/admin\/trips\/([^/]+)$/);
     const ministryMatch = url.pathname.match(/^\/api\/admin\/ministries\/([^/]+)$/);
     const accessRoleMatch = url.pathname.match(/^\/api\/admin\/roles\/([^/]+)$/);
@@ -608,6 +640,40 @@ export default async function handleRequest(request, response) {
 
       if (!isDeleted) {
         sendJson(response, 404, { message: "Calendar event not found." }, origin);
+        return;
+      }
+
+      sendJson(response, 200, { ok: true }, origin);
+      return;
+    }
+
+    if (request.method === "PUT" && calendarPlaceMatch) {
+      if (!(await authorizeRequest(request, response, origin, "calendar:update"))) {
+        return;
+      }
+
+      const existingPlace = await getCalendarPlaceRecord(calendarPlaceMatch[1]);
+
+      if (!existingPlace) {
+        sendJson(response, 404, { message: "Calendar place not found." }, origin);
+        return;
+      }
+
+      const place = buildCalendarPlace(await readJsonBody(request), existingPlace);
+      await updateCalendarPlaceRecord(place);
+      sendJson(response, 200, { place }, origin);
+      return;
+    }
+
+    if (request.method === "DELETE" && calendarPlaceMatch) {
+      if (!(await authorizeRequest(request, response, origin, "calendar:delete"))) {
+        return;
+      }
+
+      const isDeleted = await deleteCalendarPlaceRecord(calendarPlaceMatch[1]);
+
+      if (!isDeleted) {
+        sendJson(response, 404, { message: "Calendar place not found." }, origin);
         return;
       }
 
@@ -1105,6 +1171,7 @@ function buildCalendarEvent(body, existingEvent = null, user = null) {
     title: requiredText(body.title, "title", 180),
     description: optionalText(body.description, 2000),
     location: optionalText(body.location, 180),
+    locationId: optionalText(body.locationId, 80),
     startAt,
     endAt,
     date: startAt.slice(0, 10),
@@ -1114,6 +1181,17 @@ function buildCalendarEvent(body, existingEvent = null, user = null) {
     createdBy: existingEvent?.createdBy || user?.fullName || user?.username || "admin",
     createdAt: existingEvent?.createdAt || now,
     updatedAt: now,
+  };
+}
+
+function buildCalendarPlace(body, existingPlace = null) {
+  return {
+    id: existingPlace?.id || randomUUID(),
+    name: requiredText(body.name, "name", 160),
+    description: optionalText(body.description, 800),
+    color: normalizeCalendarColor(body.color || "#2f5d50"),
+    createdAt: existingPlace?.createdAt || new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
   };
 }
 
@@ -1801,6 +1879,48 @@ function filterCalendarEventsByRange(events, searchParams) {
   });
 }
 
+function toCalendarTripEvents(trip) {
+  const startDate = trip.startDate || trip.date;
+  const endDate = trip.endDate || startDate;
+
+  if (!startDate) {
+    return [];
+  }
+
+  const events = [];
+  let currentDate = startDate;
+
+  while (currentDate <= endDate) {
+    events.push({
+      id: `trip:${trip.id}`,
+      title: `${trip.cityName}, ${trip.countryName}`,
+      description: trip.description || "",
+      location: `${trip.cityName}, ${trip.countryName}`,
+      locationId: "",
+      startAt: `${currentDate}T00:00`,
+      endAt: `${currentDate}T23:59`,
+      date: currentDate,
+      roleName: "Поездка",
+      color: "#315f8c",
+      status: "confirmed",
+      sourceType: "trip",
+      createdBy: "system",
+      createdAt: trip.createdAt || "",
+      updatedAt: trip.updatedAt || trip.createdAt || "",
+    });
+    currentDate = addDateDays(currentDate, 1);
+  }
+
+  return events;
+}
+
+function addDateDays(dateKey, days) {
+  const [year, month, day] = dateKey.split("-").map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day + days));
+
+  return date.toISOString().slice(0, 10);
+}
+
 async function readCalendarEvents() {
   if (databasePool) {
     await ensureDatabase();
@@ -1810,6 +1930,7 @@ async function readCalendarEvents() {
         title,
         description,
         location,
+        location_id,
         start_at,
         end_at,
         event_date,
@@ -1836,6 +1957,86 @@ async function readCalendarEvents() {
   return Array.isArray(parsed) ? parsed : [];
 }
 
+async function readCalendarPlaces() {
+  if (databasePool) {
+    await ensureDatabase();
+    const result = await databasePool.query(`
+      SELECT id, name, description, color, created_at, updated_at
+      FROM calendar_places
+      ORDER BY name ASC
+    `);
+
+    return result.rows.map(rowToCalendarPlace);
+  }
+
+  if (!existsSync(CALENDAR_PLACES_DATA_FILE)) {
+    return [];
+  }
+
+  const content = readFileSync(CALENDAR_PLACES_DATA_FILE, "utf8");
+  const parsed = JSON.parse(content);
+
+  return Array.isArray(parsed) ? parsed : [];
+}
+
+async function getCalendarPlaceRecord(id) {
+  return (await readCalendarPlaces()).find((place) => place.id === id) || null;
+}
+
+async function createCalendarPlaceRecord(place) {
+  if (databasePool) {
+    await ensureDatabase();
+    await databasePool.query(
+      `
+        INSERT INTO calendar_places (id, name, description, color, created_at, updated_at)
+        VALUES ($1, $2, $3, $4, $5, $6)
+      `,
+      [place.id, place.name, place.description, place.color, place.createdAt, place.updatedAt],
+    );
+    return;
+  }
+
+  const places = await readCalendarPlaces();
+  places.unshift(place);
+  writeCalendarPlacesFile(places);
+}
+
+async function updateCalendarPlaceRecord(place) {
+  if (databasePool) {
+    await ensureDatabase();
+    await databasePool.query(
+      `
+        UPDATE calendar_places
+        SET name = $2, description = $3, color = $4, updated_at = $5
+        WHERE id = $1
+      `,
+      [place.id, place.name, place.description, place.color, place.updatedAt],
+    );
+    return;
+  }
+
+  const places = await readCalendarPlaces();
+  writeCalendarPlacesFile(places.map((item) => (item.id === place.id ? place : item)));
+}
+
+async function deleteCalendarPlaceRecord(id) {
+  if (databasePool) {
+    await ensureDatabase();
+    const result = await databasePool.query("DELETE FROM calendar_places WHERE id = $1", [id]);
+    return result.rowCount > 0;
+  }
+
+  const places = await readCalendarPlaces();
+  const nextPlaces = places.filter((place) => place.id !== id);
+
+  if (nextPlaces.length === places.length) {
+    return false;
+  }
+
+  writeCalendarPlacesFile(nextPlaces);
+  return true;
+}
+
 async function getCalendarEventRecord(id) {
   return (await readCalendarEvents()).find((event) => event.id === id) || null;
 }
@@ -1850,6 +2051,7 @@ async function createCalendarEventRecord(event) {
           title,
           description,
           location,
+          location_id,
           start_at,
           end_at,
           event_date,
@@ -1860,13 +2062,14 @@ async function createCalendarEventRecord(event) {
           created_at,
           updated_at
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
       `,
       [
         event.id,
         event.title,
         event.description,
         event.location,
+        event.locationId || "",
         event.startAt,
         event.endAt,
         event.date,
@@ -1896,13 +2099,14 @@ async function updateCalendarEventRecord(event) {
           title = $2,
           description = $3,
           location = $4,
-          start_at = $5,
-          end_at = $6,
-          event_date = $7,
-          role_name = $8,
-          color = $9,
-          status = $10,
-          updated_at = $11
+          location_id = $5,
+          start_at = $6,
+          end_at = $7,
+          event_date = $8,
+          role_name = $9,
+          color = $10,
+          status = $11,
+          updated_at = $12
         WHERE id = $1
       `,
       [
@@ -1910,6 +2114,7 @@ async function updateCalendarEventRecord(event) {
         event.title,
         event.description,
         event.location,
+        event.locationId || "",
         event.startAt,
         event.endAt,
         event.date,
@@ -3106,6 +3311,7 @@ async function migrateDatabase() {
       title TEXT NOT NULL,
       description TEXT NOT NULL DEFAULT '',
       location TEXT NOT NULL DEFAULT '',
+      location_id TEXT NOT NULL DEFAULT '',
       start_at TEXT NOT NULL,
       end_at TEXT NOT NULL,
       event_date DATE NOT NULL,
@@ -3113,6 +3319,19 @@ async function migrateDatabase() {
       color TEXT NOT NULL DEFAULT '#2f5d50',
       status TEXT NOT NULL DEFAULT 'planned',
       created_by TEXT NOT NULL DEFAULT '',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+
+  await databasePool.query("ALTER TABLE calendar_events ADD COLUMN IF NOT EXISTS location_id TEXT NOT NULL DEFAULT ''");
+
+  await databasePool.query(`
+    CREATE TABLE IF NOT EXISTS calendar_places (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      description TEXT NOT NULL DEFAULT '',
+      color TEXT NOT NULL DEFAULT '#2f5d50',
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
@@ -3177,13 +3396,26 @@ function rowToCalendarEvent(row) {
     title: row.title,
     description: row.description || "",
     location: row.location || "",
+    locationId: row.location_id || "",
     startAt: row.start_at,
     endAt: row.end_at,
     date: formatDateOnly(row.event_date),
     roleName: row.role_name || "",
     color: row.color || "#2f5d50",
     status: row.status || "planned",
+    sourceType: row.source_type || "event",
     createdBy: row.created_by || "",
+    createdAt: row.created_at ? new Date(row.created_at).toISOString() : "",
+    updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : "",
+  };
+}
+
+function rowToCalendarPlace(row) {
+  return {
+    id: row.id,
+    name: row.name,
+    description: row.description || "",
+    color: row.color || "#2f5d50",
     createdAt: row.created_at ? new Date(row.created_at).toISOString() : "",
     updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : "",
   };
@@ -3329,6 +3561,11 @@ function writeReportsFile(reports) {
 function writeCalendarEventsFile(events) {
   mkdirSync(dirname(CALENDAR_DATA_FILE), { recursive: true });
   writeFileSync(CALENDAR_DATA_FILE, JSON.stringify(events, null, 2), "utf8");
+}
+
+function writeCalendarPlacesFile(places) {
+  mkdirSync(dirname(CALENDAR_PLACES_DATA_FILE), { recursive: true });
+  writeFileSync(CALENDAR_PLACES_DATA_FILE, JSON.stringify(places, null, 2), "utf8");
 }
 
 function loadEnvFile() {

@@ -147,13 +147,24 @@ export type CalendarEvent = {
   title: string;
   description: string;
   location: string;
+  locationId?: string;
   startAt: string;
   endAt: string;
   date: string;
   roleName: string;
   color: string;
   status: CalendarEventStatus;
+  sourceType?: "event" | "trip";
   createdBy?: string;
+  createdAt?: string;
+  updatedAt?: string;
+};
+
+export type CalendarPlace = {
+  id: string;
+  name: string;
+  description: string;
+  color: string;
   createdAt?: string;
   updatedAt?: string;
 };
@@ -279,11 +290,18 @@ export type CalendarEventInput = {
   title: string;
   description: string;
   location: string;
+  locationId: string;
   startAt: string;
   endAt: string;
   roleName: string;
   color: string;
   status: CalendarEventStatus;
+};
+
+export type CalendarPlaceInput = {
+  name: string;
+  description: string;
+  color: string;
 };
 
 type LoginResponse = {
@@ -526,6 +544,36 @@ export async function fetchCalendarEvents(range?: { start?: string; end?: string
   );
 
   return response.events;
+}
+
+export async function fetchCalendarPlaces() {
+  const response = await apiFetch<{ places: CalendarPlace[] }>("/api/admin/calendar/places");
+
+  return response.places;
+}
+
+export async function createCalendarPlace(input: CalendarPlaceInput) {
+  const response = await apiFetch<{ place: CalendarPlace }>("/api/admin/calendar/places", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+
+  return response.place;
+}
+
+export async function updateCalendarPlace(id: string, input: CalendarPlaceInput) {
+  const response = await apiFetch<{ place: CalendarPlace }>(`/api/admin/calendar/places/${id}`, {
+    method: "PUT",
+    body: JSON.stringify(input),
+  });
+
+  return response.place;
+}
+
+export async function deleteCalendarPlace(id: string) {
+  await apiFetch<{ ok: boolean }>(`/api/admin/calendar/places/${id}`, {
+    method: "DELETE",
+  });
 }
 
 export async function createCalendarEvent(input: CalendarEventInput) {

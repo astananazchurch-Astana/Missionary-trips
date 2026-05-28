@@ -2218,19 +2218,20 @@ textarea {
   position: fixed;
   z-index: 80;
   inset: 0;
-  display: grid;
+  display: flex;
   align-items: center;
+  justify-content: center;
   padding: clamp(14px, 4vw, 36px);
   background: rgba(9, 8, 7, 0.62);
   overflow-y: auto;
 }
 
 .trip-modal {
-  width: min(760px, 100%);
-  max-height: calc(100svh - 28px);
+  width: min(680px, 100%);
+  max-height: inherit;
   overflow-y: auto;
-  margin: auto;
-  padding: 18px;
+  margin: 0;
+  padding: 16px;
   color: var(--ink);
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -2240,15 +2241,18 @@ textarea {
 
 .trip-modal-layout {
   display: grid;
-  grid-template-columns: minmax(0, 760px);
-  align-items: start;
-  gap: 14px;
-  width: min(1160px, 100%);
+  grid-template-columns: minmax(0, 680px);
+  align-items: stretch;
+  gap: 12px;
+  width: min(680px, 100%);
+  max-height: calc(100svh - 52px);
   margin: auto;
+  transition: width 220ms ease;
 }
 
 .trip-modal-layout--with-panel {
-  grid-template-columns: minmax(0, 760px) minmax(320px, 380px);
+  grid-template-columns: minmax(0, 680px) minmax(300px, 360px);
+  width: min(1052px, 100%);
 }
 
 .trip-modal__header {
@@ -2261,7 +2265,7 @@ textarea {
 
 .trip-modal__header h2 {
   margin: 4px 0 0;
-  font-size: 1.55rem;
+  font-size: 1.42rem;
   line-height: 1.04;
 }
 
@@ -2285,7 +2289,7 @@ textarea {
 .trip-form {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
+  gap: 8px 10px;
 }
 
 .trip-form .form-field {
@@ -2297,7 +2301,7 @@ textarea {
 .trip-form .input-shell,
 .trip-form .form-field > input,
 .trip-form .input-shell select {
-  min-height: 42px;
+  min-height: 40px;
 }
 
 .trip-form .input-shell {
@@ -2316,11 +2320,11 @@ textarea {
 }
 
 .trip-form textarea[rows="4"] {
-  min-height: 88px;
+  min-height: 76px;
 }
 
 .trip-form textarea[rows="3"] {
-  min-height: 68px;
+  min-height: 58px;
 }
 
 .form-field--wide {
@@ -2340,7 +2344,7 @@ textarea {
   grid-template-columns: 22px minmax(0, 1fr) 20px;
   align-items: center;
   gap: 8px;
-  min-height: 42px;
+  min-height: 40px;
   padding: 0 10px;
   color: var(--ink);
   border: 1px solid rgba(9, 8, 7, 0.14);
@@ -2366,14 +2370,40 @@ textarea {
 }
 
 .cost-side-panel {
-  max-height: calc(100svh - 28px);
+  min-width: 0;
+  max-height: inherit;
   overflow-y: auto;
-  padding: 18px;
+  padding: 16px;
   color: var(--ink);
   border: 1px solid var(--line);
   border-radius: 8px;
   background: var(--paper);
   box-shadow: 0 30px 100px rgba(0, 0, 0, 0.26);
+  animation: costPanelSlideIn 240ms ease-out both;
+}
+
+@keyframes costPanelSlideIn {
+  from {
+    opacity: 0;
+    transform: translateX(34px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes costPanelMobileSlideIn {
+  from {
+    opacity: 0;
+    transform: translateY(34px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .cost-fields,
@@ -2968,9 +2998,48 @@ textarea {
   align-items: start;
 }
 
+.calendar-workspace--single {
+  position: relative;
+  grid-template-columns: minmax(0, 1fr);
+  overflow: hidden;
+}
+
+.calendar-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0 0 18px;
+}
+
+.calendar-tab {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 42px;
+  padding: 0 16px;
+  color: var(--muted);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 250, 240, 0.72);
+  font-weight: 900;
+  cursor: pointer;
+  transition:
+    border-color 180ms ease,
+    background 180ms ease,
+    color 180ms ease;
+}
+
+.calendar-tab--active,
+.calendar-tab:hover {
+  color: var(--black);
+  border-color: rgba(243, 198, 95, 0.7);
+  background: rgba(243, 198, 95, 0.22);
+}
+
 .calendar-month-panel,
 .calendar-day-panel {
-  min-height: 640px;
+  min-height: 0;
 }
 
 .calendar-toolbar,
@@ -2990,7 +3059,7 @@ textarea {
 .calendar-day-panel__header {
   justify-content: space-between;
   gap: 16px;
-  margin-bottom: 18px;
+  margin-bottom: 14px;
 }
 
 .calendar-toolbar__title {
@@ -3035,11 +3104,11 @@ textarea {
 
 .calendar-day {
   display: grid;
-  grid-template-rows: auto minmax(52px, 1fr);
-  gap: 8px;
-  min-height: 112px;
+  grid-template-rows: auto minmax(24px, 1fr);
+  gap: 5px;
+  min-height: clamp(64px, calc((100svh - 420px) / 6), 92px);
   min-width: 0;
-  padding: 10px;
+  padding: 8px;
   color: var(--ink);
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -3071,8 +3140,8 @@ textarea {
 
 .calendar-day__number {
   display: inline-grid;
-  width: 30px;
-  height: 30px;
+  width: 28px;
+  height: 28px;
   place-items: center;
   border-radius: 999px;
   font-weight: 900;
@@ -3081,12 +3150,14 @@ textarea {
 .calendar-day__events {
   display: grid;
   align-content: start;
-  gap: 5px;
+  gap: 4px;
   min-width: 0;
 }
 
 .calendar-event-chip {
-  display: block;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
   min-width: 0;
   padding: 4px 6px;
   overflow: hidden;
@@ -3096,8 +3167,19 @@ textarea {
   background: rgba(255, 255, 255, 0.8);
   font-size: 0.76rem;
   font-weight: 850;
+  line-height: 1.1;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.calendar-event-chip svg {
+  flex: 0 0 auto;
+  color: #315f8c;
+}
+
+.calendar-event-chip--trip {
+  color: #224c72;
+  background: rgba(49, 95, 140, 0.1);
 }
 
 .calendar-event-chip--more {
@@ -3135,6 +3217,256 @@ textarea {
 .calendar-event-card__meta svg {
   flex: 0 0 auto;
   color: var(--green);
+}
+
+.calendar-day-trips {
+  display: grid;
+  gap: 8px;
+  margin: -4px 0 14px;
+}
+
+.calendar-day-trips span {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  min-height: 38px;
+  padding: 8px 10px;
+  color: #224c72;
+  border: 1px solid rgba(49, 95, 140, 0.2);
+  border-radius: 8px;
+  background: rgba(49, 95, 140, 0.1);
+  font-weight: 900;
+}
+
+.calendar-day-trips svg {
+  flex: 0 0 auto;
+}
+
+.calendar-day-panel--drawer {
+  position: absolute;
+  top: 0;
+  right: 0;
+  z-index: 3;
+  width: min(520px, 46vw);
+  max-width: calc(100vw - 28px);
+  max-height: min(760px, calc(100vh - 148px));
+  min-height: 0;
+  overflow: hidden;
+  box-shadow: -24px 0 64px rgba(25, 20, 14, 0.18);
+  animation: calendarDrawerIn 220ms ease-out;
+}
+
+@keyframes calendarDrawerIn {
+  from {
+    opacity: 0;
+    transform: translateX(34px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.calendar-day-panel__actions {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 8px;
+}
+
+.calendar-day-panel--full {
+  width: 100%;
+  min-height: 0;
+  animation: calendarDayIn 180ms ease-out;
+}
+
+@keyframes calendarDayIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.calendar-back {
+  min-height: 42px;
+  padding: 0 13px;
+}
+
+.calendar-day-scroll {
+  max-height: min(560px, calc(100svh - 330px));
+  overflow: auto;
+  padding: 0 4px 4px 0;
+}
+
+.calendar-timeline-board {
+  position: relative;
+  min-width: 720px;
+  padding-left: 56px;
+}
+
+.calendar-time-axis,
+.calendar-time-grid,
+.calendar-event-lanes {
+  position: absolute;
+  inset: 0;
+}
+
+.calendar-time-axis {
+  width: 52px;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 900;
+}
+
+.calendar-time-label {
+  position: absolute;
+  left: 0;
+  transform: translateY(-50%);
+}
+
+.calendar-time-grid {
+  left: 56px;
+  pointer-events: none;
+}
+
+.calendar-time-grid span {
+  position: absolute;
+  left: 0;
+  right: 0;
+  border-top: 1px solid var(--line);
+}
+
+.calendar-event-lanes {
+  left: 56px;
+  right: 0;
+}
+
+.calendar-event-block {
+  position: absolute;
+  display: grid;
+  align-content: start;
+  gap: 6px;
+  min-width: 0;
+  padding: 8px 10px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-left: 5px solid var(--green);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 12px 28px rgba(33, 28, 22, 0.08);
+}
+
+.calendar-event-block--trip {
+  background: rgba(49, 95, 140, 0.1);
+  border-color: rgba(49, 95, 140, 0.24);
+  border-left-color: #315f8c;
+}
+
+.calendar-event-block__header,
+.calendar-event-block__meta,
+.calendar-event-block__actions {
+  display: flex;
+  align-items: center;
+}
+
+.calendar-event-block__header {
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--green);
+  font-size: 0.76rem;
+  font-weight: 900;
+}
+
+.calendar-event-block h3 {
+  margin: 0;
+  overflow-wrap: anywhere;
+  font-size: 0.9rem;
+  line-height: 1.18;
+}
+
+.calendar-event-block__meta {
+  flex-wrap: wrap;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-weight: 800;
+}
+
+.calendar-event-block__meta span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.calendar-event-block p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.78rem;
+  line-height: 1.3;
+}
+
+.calendar-event-block__actions {
+  gap: 6px;
+  margin-top: auto;
+}
+
+.calendar-event-block__actions .icon-button {
+  width: 30px;
+  height: 30px;
+}
+
+.calendar-places-panel {
+  min-height: 420px;
+}
+
+.calendar-places-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.calendar-place-card {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  min-width: 0;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-left: 5px solid var(--green);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.76);
+}
+
+.calendar-place-card h3 {
+  margin: 8px 0 0;
+  overflow-wrap: anywhere;
+  font-size: 1.05rem;
+}
+
+.calendar-place-card p {
+  margin: 8px 0 0;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.calendar-place-card__color {
+  display: block;
+  width: 32px;
+  height: 8px;
+  border-radius: 999px;
+}
+
+.calendar-place-card__actions {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 7px;
 }
 
 .calendar-timeline {
@@ -3818,6 +4150,22 @@ textarea {
     grid-template-columns: 1fr;
   }
 
+  .calendar-day-panel--drawer {
+    position: relative;
+    width: 100%;
+    max-width: none;
+    max-height: none;
+    box-shadow: 0 16px 38px rgba(25, 20, 14, 0.12);
+  }
+
+  .calendar-day-scroll {
+    max-height: min(520px, calc(100svh - 310px));
+  }
+
+  .calendar-places-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .calendar-month-panel,
   .calendar-day-panel {
     min-height: auto;
@@ -4028,10 +4376,16 @@ textarea {
   .trip-modal-layout,
   .trip-modal-layout--with-panel {
     grid-template-columns: 1fr;
+    width: 100%;
   }
 
   .cost-side-panel {
-    max-height: none;
+    position: fixed;
+    right: 14px;
+    bottom: 14px;
+    left: 14px;
+    max-height: min(76svh, 620px);
+    animation: costPanelMobileSlideIn 240ms ease-out both;
   }
 
   .cost-other-item {
@@ -4060,6 +4414,16 @@ textarea {
     grid-template-columns: 1fr;
   }
 
+  .calendar-tabs {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .calendar-tab {
+    min-width: 0;
+    padding: 0 10px;
+  }
+
   .calendar-grid {
     gap: 4px;
   }
@@ -4070,7 +4434,7 @@ textarea {
   }
 
   .calendar-day {
-    min-height: 78px;
+    min-height: clamp(56px, calc((100svh - 360px) / 6), 76px);
     padding: 7px;
   }
 
@@ -4082,6 +4446,42 @@ textarea {
   .calendar-event-chip {
     padding: 3px 4px;
     font-size: 0.7rem;
+  }
+
+  .calendar-day-panel--drawer {
+    max-width: 100%;
+  }
+
+  .calendar-day-scroll {
+    max-height: min(500px, calc(100svh - 300px));
+    margin-right: -4px;
+  }
+
+  .calendar-timeline-board {
+    min-width: 360px;
+    padding-left: 48px;
+  }
+
+  .calendar-time-grid,
+  .calendar-event-lanes {
+    left: 48px;
+  }
+
+  .calendar-time-axis {
+    width: 44px;
+    font-size: 0.72rem;
+  }
+
+  .calendar-event-block {
+    padding: 8px;
+  }
+
+  .calendar-event-block h3 {
+    font-size: 0.86rem;
+  }
+
+  .calendar-places-grid {
+    grid-template-columns: 1fr;
   }
 
   .calendar-toolbar__actions {
